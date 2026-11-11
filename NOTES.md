@@ -78,6 +78,9 @@ See `analysis/usnf_1.0_symbols.txt`.
 - Keyboard: `KEYEvent` uses the **scancode** from lParam (bits 16–22) and tracks Shift (2A/36), Ctrl (1D) and Alt (38) itself. Held keys go to `_keyarray[scancode]`: arrows = stick, End/PgDn = rudder, Space = weapon, Tab = gun. Throttle keys: 1 idle, 2/3/4 = 25/50/75 %, 5 full, 6 afterburner, 7 −5 %, 8 +5 %.
 - Flight menu accelerators (FMENUD.MNU): F1–F10 and F12 views, Shift+1–9 windows, Ctrl+P pause, Shift+C slow motion, Ctrl+T target info, Alt+S radio silence, Ctrl+Q end mission, Backspace cockpit. Single-key commands (FlightKey): a autopilot, b brakes, d damage, f flaps, g gear, h hook, j jammer, t target, [ ] weapon select, E eject, Insert chaff, Delete flare.
 
+- **Device scans block.** `IDirectInput8::EnumDevices` takes about 1.2 s on the test machine with a Honeycomb Echo attached. The hot-plug rescan used to run every 2 s on the polling thread, which froze the controller state for about 1.2 s out of every 3.2 s and showed up as a "lagging" stick. It now runs on its own thread (`enum_thread`), and the poll thread only applies a changed device list. With `LogInput=1`, the log reports scan times and any poll-thread stall over 60 ms. It also logs the game's `_stickX`/`_stickY` each frame (via a hook on `FlyingLoop`'s `GetPlayerControl` call).
+- Flight model: `StickInput@28` eases each control towards the stick at a per-aircraft onset rate and returns at a recentre rate (F-14: onset 20, recentre 8). `StickResponse=N` scales both by N %.
+
 ## Cockpit art (canopy frames)
 - `.HUD` files (in usnf_2.lib) are small PE images. Their struct at file+0x200 is copied to `_hud`. `+1` holds the low-res canopy name (`~f14`), `+0xE` the high-res one (`~f14h`), `+0x28` the low-res hotspot (F14: 349,114) and `+0x2C` the 640×480 hotspot (F14: 640,240).
 - Canopy PICs are type 1 (span lists, see `tools/pic2png.py`). `~F14H` is **1280×490**, twice the width of the 640×480 view.

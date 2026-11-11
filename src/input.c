@@ -251,13 +251,64 @@ static void resolve_all(void);
 
 /* (Re)build the device list from a fresh enumeration; returns 1 if it changed.
  * Only the input thread (or init, before it starts) touches the device list. */
+/* DirectInput's EnumDevices can block for a second or more with some HID devices,
+   so after the first scan it runs on its own thread; the poll thread only applies
+   a new list when the set of devices actually changed. */
+static EnumList s_enumNew;
+static volatile LONG s_enumReady;
+static CRITICAL_SECTION s_enumLock;
+
+static int same_set(const EnumList *a, const EnumList *b)
+{
+    int i, j;
+    if (a->n != b->n) return 0;
+    for (i = 0; i < a->n; i++) {
+        int f = 0;
+        for (j = 0; j < b->n; j++) if (!memcmp(&a->list[i].guidInstance, &b->list[j].guidInstance, sizeof(GUID))) f = 1;
+        if (!f) return 0;
+    }
+    return 1;
+}
+
+static DWORD WINAPI enum_thread(void *arg)
+{
+    static EnumList cur, last;
+    (void)arg;
+    last.n = -1;
+    for (;;) {
+        DWORD t0;
+        Sleep(2000);
+        cur.n = 0;
+        t0 = GetTickCount();
+        DI_EnumDevices(s_di, DI8DEVCLASS_GAMECTRL, enum_cb, &cur);
+        if (s_logInput && GetTickCount() - t0 > 100) logf("input: device scan took %lu ms (off the input thread)", GetTickCount() - t0);
+        if (last.n >= 0 && !same_set(&cur, &last)) {
+            EnterCriticalSection(&s_enumLock);
+            s_enumNew = cur;
+            s_enumReady = 1;
+            LeaveCriticalSection(&s_enumLock);
+        }
+        last = cur;
+    }
+}
+
+static int enumerate_apply(EnumList *src, int verbose);
 static int enumerate(int verbose)
 {
     static EnumList l;
-    int i, j, changed = 0;
+    DWORD t0 = GetTickCount();
     l.n = 0;
     if (s_di) DI_EnumDevices(s_di, DI8DEVCLASS_GAMECTRL, enum_cb, &l);
     else return 0;
+    logf("input: device scan took %lu ms", GetTickCount() - t0);
+    return enumerate_apply(&l, verbose);
+}
+
+static int enumerate_apply(EnumList *src, int verbose)
+{
+    EnumList *const lp = src;
+    int i, j, changed = 0;
+#define l (*lp)
     /* drop DirectInput devices that went away */
     for (i = 0; i < s_ndev; ) {
         int found = 0;
@@ -286,6 +337,7 @@ static int enumerate(int verbose)
     }
     if (changed) resolve_all();
     return changed;
+#undef l
 }
 
 static void add_pads(void)
@@ -743,7 +795,19 @@ static DWORD WINAPI input_thread(void *arg)
     for (;;) {
         DWORD now = GetTickCount();
         int i;
-        if (now - lastEnum > 2000) { enumerate(0); lastEnum = now; }
+        if (s_enumReady) {
+            static EnumList l;
+            EnterCriticalSection(&s_enumLock);
+            l = s_enumNew; s_enumReady = 0;
+            LeaveCriticalSection(&s_enumLock);
+            enumerate_apply(&l, 0);
+        }
+        (void)lastEnum;
+        if (s_logInput) {
+            static DWORD prevLoop;
+            if (prevLoop && now - prevLoop > 60) logf("input: [%lu.%02lu] input thread stalled %lu ms", T_S, T_C, now - prevLoop);
+            prevLoop = now;
+        }
         for (i = 0; i < s_ndev; i++) {
             if (s_dev[i].di) poll_di(&s_dev[i]);
             else poll_pad(&s_dev[i], now);
@@ -811,6 +875,7 @@ static void input_init_locked(void)
     for (i = 0; i < s_ndev; i++) if (s_dev[i].di) poll_di(&s_dev[i]);
     compute_virtual();
     CreateThread(NULL, 0, input_thread, NULL, 0, NULL);
+    if (s_di) { InitializeCriticalSection(&s_enumLock); CreateThread(NULL, 0, enum_thread, NULL, 0, NULL); }
 }
 
 /* ------------------------------------------------------------------ */
@@ -845,6 +910,8 @@ UINT WINAPI hook_joyGetDevCapsA(UINT_PTR id, void *caps, UINT cb)
     return JOYERR_NOERROR;
 }
 
+static volatile DWORD s_gameReadT, s_gameReadX, s_gameReads;
+
 static Virtual snapshot(void)
 {
     Virtual v;
@@ -863,6 +930,7 @@ UINT WINAPI hook_joyGetPos(UINT id, void *p)
     if (id != 0 || !s_present) return JOYERR_UNPLUGGED;
     { static int once; if (!once) { once = 1; logf("input: game reads the joystick (joyGetPos)"); } }
     v = snapshot();
+    s_gameReadT = GetTickCount(); s_gameReadX = (DWORD)v.x; s_gameReads++;
     ji->wXpos = (UINT)v.x; ji->wYpos = (UINT)v.y; ji->wZpos = (UINT)v.z; ji->wButtons = v.buttons;
     return JOYERR_NOERROR;
 }
@@ -877,6 +945,7 @@ UINT WINAPI hook_joyGetPosEx(UINT id, void *p)
     if (id != 0 || !s_present) return JOYERR_UNPLUGGED;
     { static int once; if (!once) { once = 1; logf("input: game reads the joystick (joyGetPosEx, flags %08lx)", ji->dwFlags); } }
     v = snapshot();
+    s_gameReadT = GetTickCount(); s_gameReadX = (DWORD)v.x; s_gameReads++;
     ji->dwXpos = (DWORD)v.x; ji->dwYpos = (DWORD)v.y; ji->dwZpos = (DWORD)v.z; ji->dwRpos = (DWORD)v.r;
     ji->dwUpos = ji->dwVpos = 0;
     ji->dwButtons = v.buttons;
@@ -913,8 +982,32 @@ static void __stdcall force_controls(void)
 
 static unsigned char s_ctlStub[32];
 
+static void (__stdcall *s_getPlayerControl)(void);
+static void __stdcall player_control_wrap(void)
+{
+    s_getPlayerControl();
+    input_frame_diag();
+}
+
+static void patch_frame_diag(void)
+{
+    BYTE *fl = (BYTE *)patches_symbol("?FlyingLoop@@YAXXZ");
+    DWORD gpc = patches_symbol("_GetPlayerControl@0"), rel;
+    int i;
+    if (!fl || !gpc) return;
+    for (i = 0; i < 0x80; i++)
+        if (fl[i] == 0xE8 && (DWORD)(fl + i + 5) + *(DWORD *)(fl + i + 1) == gpc) {
+            s_getPlayerControl = (void (__stdcall *)(void))gpc;
+            rel = (DWORD)player_control_wrap - (DWORD)(fl + i + 5);
+            if (write_code(fl + i + 1, &rel, 4)) logf("input: stick timing log on (FlyingLoop %p)", (void *)(fl + i));
+            return;
+        }
+}
+
 void input_patch_controls(void)
 {
+    if (s_enabled && GetPrivateProfileIntA("input", "LogInput", 0, s_iniPath)) patch_frame_diag();
+    {
     static const unsigned char head[8] = { 0x53, 0x56, 0x57, 0x68, 0x00, 0x80, 0x00, 0x00 };
     BYTE *a = (BYTE *)patches_symbol("_InitPlayerControl@0"), *p = s_ctlStub, j[8];
     DWORD old;
@@ -932,4 +1025,44 @@ void input_patch_controls(void)
     j[0] = 0xE9; *(DWORD *)(j + 1) = (DWORD)s_ctlStub - (DWORD)(a + 5); j[5] = j[6] = j[7] = 0x90;
     logf("game controls: set from [input] at each flight start (%s; stick %p, rudder %p, throttle %p)",
          write_code(a, j, 8) ? "ok" : "failed", (void *)s_gStick, (void *)s_gRudder, (void *)s_gThrottle);
+}
+}
+
+/* LogInput diagnostics, called once per game frame (TIMEUpdate): when the game's own
+   stick value changes, log it with the same timestamps as the device events */
+void input_frame_diag(void)
+{
+    static int *gx, *gy, lastX = 0x7fffffff, lastY = 0x7fffffff;
+    static DWORD frames, fT0, reads0;
+    DWORD now = GetTickCount();
+    if (!s_logInput) return;
+    if (!gx) { gx = (int *)patches_symbol("_stickX"); gy = (int *)patches_symbol("_stickY"); if (!gx || !gy) { s_logInput = 0; return; } }
+    if (!s_logT0) s_logT0 = now;
+    frames++;
+    if (!fT0) { fT0 = now; reads0 = s_gameReads; }
+    else if (now - fT0 >= 2000) {
+        logf("input: [%lu.%02lu] %lu frames/s, game joystick reads %lu/s", T_S, T_C, frames * 1000 / (now - fT0), (s_gameReads - reads0) * 1000 / (now - fT0));
+        fT0 = now; frames = 0; reads0 = s_gameReads;
+    }
+    if (*gx - lastX > 8 || lastX - *gx > 8 || *gy - lastY > 8 || lastY - *gy > 8) {
+        Virtual v = snapshot();
+        logf("input: [%lu.%02lu] game stick x=%d y=%d | joystick last read %lu ms ago (x=%lu) | now x=%d",
+             T_S, T_C, *gx, *gy, now - s_gameReadT, s_gameReadX, v.x);
+        lastX = *gx; lastY = *gy;
+    }
+    {   /* 1.4 player aircraft (_cp = 0x4e88cc): roll rate +1B7, pitch rate +19B,
+           StickInput roll limits/rates +4FC..+502; logged every 100 ms while rolling */
+        static DWORD tR;
+        BYTE *cp = (BYTE *)patches_symbol("_cp");
+        if (cp == (BYTE *)0x4e88cc) {
+            int roll = *(int *)(cp + 0x1b7), pitch = *(int *)(cp + 0x19b);
+            static int lastRoll = 0x7fffffff, said;
+            if (!said) { said = 1; logf("input: roll limits %d/%d, onset rate %d, recentre rate %d (x stick response)",
+                *(short *)(cp + 0x4fc), *(short *)(cp + 0x4fe), *(short *)(cp + 0x500), *(short *)(cp + 0x502)); }
+            if ((roll != lastRoll) && (now - tR >= 100 || roll == 0)) {
+                logf("input: [%lu.%02lu]   roll rate %d, pitch rate %d (stick x=%d)", T_S, T_C, roll, pitch, *gx);
+                tR = now; lastRoll = roll;
+            }
+        }
+    }
 }

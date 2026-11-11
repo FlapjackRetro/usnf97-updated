@@ -181,21 +181,6 @@ static void __cdecl tick_wait(void)
         short c = *(volatile short *)s_tp.compressAddr;   /* time compression: <0 = slow motion */
         if (c < 0 && c > -6) minTicks <<= -c;
     }
-    {   /* frame-rate report every 10 s while frames are running */
-        static DWORD t0, tPrev, worst, n;
-        DWORD t = GetTickCount();
-        if (tPrev && t - tPrev > 1000) { t0 = 0; }              /* paused or in a menu: start over */
-        if (!t0) { t0 = t; worst = 0; n = 0; }
-        else {
-            if (t - tPrev > worst) worst = t - tPrev;
-            n++;
-            if (t - t0 >= 10000) {
-                logf("frame rate: %lu fps average, slowest frame %lu ms", n * 1000 / (t - t0), worst);
-                t0 = t; worst = 0; n = 0;
-            }
-        }
-        tPrev = t;
-    }
     for (;;) {
         LONG diff;
         s_readClock();
@@ -274,6 +259,39 @@ static LONG WINAPI priv_handler(EXCEPTION_POINTERS *ep)
 /* Option: joystick read interval. ReadDevice() re-reads a joystick at  */
 /* most every 50 ms (gameport reads were expensive in 1996).            */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Option: stick response. StickInput() eases each control (pitch,     */
+/* roll, yaw) towards the stick at a per-aircraft onset rate (arg 5)   */
+/* and recentres at a return rate (arg 6), so the aircraft keeps       */
+/* rolling after the stick is centred. Scale both rates by N %.        */
+/* ------------------------------------------------------------------ */
+static unsigned char s_srStub[64];
+
+static void patch_stick_response(void)
+{
+    static const unsigned char head[7] = { 0x8B, 0x4C, 0x24, 0x1C, 0x83, 0xEC, 0x20 };
+    int pct = (int)GetPrivateProfileIntA("input", "StickResponse", 100, g_iniPath), k;
+    BYTE *fn = (BYTE *)sms_find(&s_sms, "_StickInput@28"), *p = s_srStub, j[7];
+    DWORD old;
+    if (pct == 100) return;
+    if (pct < 25) pct = 25;
+    if (pct > 1000) pct = 1000;
+    if (!fn || memcmp(fn, head, 7)) { logf("stick response: StickInput not recognised; not patched"); return; }
+    if (!VirtualProtect(s_srStub, sizeof s_srStub, PAGE_EXECUTE_READWRITE, &old)) return;
+    for (k = 0x14; k <= 0x18; k += 4) {
+        *p++ = 0x8B; *p++ = 0x44; *p++ = 0x24; *p++ = (BYTE)k;          /* mov eax,[esp+k]   */
+        *p++ = 0x69; *p++ = 0xC0; *(DWORD *)p = (DWORD)pct; p += 4;      /* imul eax,eax,pct  */
+        *p++ = 0x99;                                                      /* cdq               */
+        *p++ = 0xB9; *(DWORD *)p = 100; p += 4;                          /* mov ecx,100       */
+        *p++ = 0xF7; *p++ = 0xF9;                                         /* idiv ecx          */
+        *p++ = 0x89; *p++ = 0x44; *p++ = 0x24; *p++ = (BYTE)k;          /* mov [esp+k],eax   */
+    }
+    memcpy(p, head, 7); p += 7;
+    *p++ = 0xE9; *(DWORD *)p = (DWORD)(fn + 7) - (DWORD)(p + 4); p += 4;
+    j[0] = 0xE9; *(DWORD *)(j + 1) = (DWORD)s_srStub - (DWORD)(fn + 5); j[5] = j[6] = 0x90;
+    logf("stick response: %d %% of the aircraft's onset/recentre rates (%s)", pct, write_code(fn, j, 7) ? "ok" : "failed");
+}
+
 static void patch_joy_interval(void)
 {
     DWORD fn = sms_find(&s_sms, "?ReadDevice@@YA?AW4JOYRESULT@@K@Z");
@@ -332,6 +350,7 @@ void patches_apply(void)
     }
     patch_cdpath();
     patch_joy_interval();
+    patch_stick_response();
     if (g_cfg.fixGameSpeed) patch_timeupdate();
     else logf("speed fix: disabled in ini");
     patch_force_detail();

@@ -76,6 +76,8 @@ The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, 
 
 Xbox-style pads work automatically: left stick for pitch/roll, triggers for rudder, RB/LB for throttle up/down, d-pad as the hat, and A/B/X/Y as buttons 1–4.
 
+`StickResponse` (percent, default 100) speeds up how quickly the aircraft follows the stick and stops when you centre it; the original flight model eases in and out, which feels laggy on a modern controller.
+
 `JoystickPollMs` controls how often the game reads the joystick. The game's own interval is 50 ms; usnf97fix defaults to 10 ms to cut input lag (the virtual joystick is cheap to read).
 
 ## Network play

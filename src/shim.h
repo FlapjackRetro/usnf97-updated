@@ -128,7 +128,8 @@ HWND present_hwnd(void);
 /* ---------- input (input.c) ---------- */
 void input_configure(void);          /* DllMain: read [input] Enable */
 int  input_enabled(void);
-void input_patch_controls(void);   /* patches_apply: set Flight > Control from [input] */
+void input_patch_controls(void);
+void input_frame_diag(void);       /* per game frame: LogInput stick timing */   /* patches_apply: set Flight > Control from [input] */
 UINT WINAPI hook_joyGetNumDevs(void);
 UINT WINAPI hook_joyGetDevCapsA(UINT_PTR id, void *caps, UINT cb);
 UINT WINAPI hook_joyGetPos(UINT id, void *ji);
