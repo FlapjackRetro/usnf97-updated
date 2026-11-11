@@ -1,0 +1,20 @@
+LIBRARY kernel32.dll
+EXPORTS
+GetModuleFileNameA@12
+GetModuleHandleA@4
+LoadLibraryA@4
+GetProcAddress@8
+ExitProcess@4
+GetTickCount@0
+Sleep@4
+CreateThread@24
+CloseHandle@4
+GetPrivateProfileStringA@24
+GetPrivateProfileIntA@16
+GetPrivateProfileSectionA@16
+WritePrivateProfileStringA@16
+WritePrivateProfileSectionA@12
+GetFileAttributesA@4
+CopyFileA@12
+GetCommandLineA@0
+GetLastError@0

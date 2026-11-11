@@ -98,6 +98,32 @@ int insrc_parse(const char *s, InSrc *o)
     return 1;
 }
 
+/* inverse of insrc_parse: "dev:ctl[-ctl2][~][>N|<N][!]" */
+void insrc_format(const InSrc *s, char *out, int cap)
+{
+    int n = 0, i;
+    const char *parts[4];
+    char num[8];
+    if (cap <= 0) return;
+    parts[0] = s->devPat; parts[1] = ":"; parts[2] = s->ctl; parts[3] = 0;
+    out[0] = 0;
+    #define APP(str) do { const char *q_ = (str); while (*q_ && n + 1 < cap) out[n++] = *q_++; out[n] = 0; } while (0)
+    for (i = 0; parts[i]; i++) APP(parts[i]);
+    if (s->ctl2[0]) { APP("-"); APP(s->ctl2); }
+    if (s->invert) APP("~");
+    if (s->hasThresh) {
+        int v = s->threshPct, k = 0;
+        char rev[8];
+        APP(s->wantGT ? ">" : "<");
+        do { rev[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 7);
+        for (i = 0; i < k; i++) num[i] = rev[k - 1 - i];
+        num[k] = 0;
+        APP(num);
+    }
+    if (s->tap) APP("!");
+    #undef APP
+}
+
 /* ---------------- resolve ---------------- */
 static int find_device(const char *pat, const InDevInfo *d, int n)
 {

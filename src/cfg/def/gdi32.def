@@ -1,0 +1,20 @@
+LIBRARY gdi32.dll
+EXPORTS
+CreateSolidBrush@4
+CreatePen@12
+SelectObject@8
+DeleteObject@4
+GetStockObject@4
+SetBkMode@8
+SetTextColor@8
+SetBkColor@8
+CreateFontA@56
+Rectangle@20
+RoundRect@28
+Ellipse@20
+MoveToEx@16
+LineTo@12
+CreateCompatibleDC@4
+CreateCompatibleBitmap@12
+BitBlt@36
+DeleteDC@4

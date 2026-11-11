@@ -43,6 +43,8 @@ typedef struct { unsigned char scan; unsigned char mods; } KeySpec;   /* mods: 1
 
 /* "Echo:X~", "pad:RT-LT", "#2:B5", "Echo:POV1U", "Echo:S1>80", "Echo:B13!" (tap). 0 on syntax error. */
 int  insrc_parse(const char *s, InSrc *out);
+/* Back to text (inverse of insrc_parse). */
+void insrc_format(const InSrc *s, char *out, int cap);
 /* Bind a parsed source to the current device list. 0 if the device or control is not present. */
 int  insrc_resolve(InSrc *s, const InDevInfo *devs, int n);
 /* Value of an axis source, 0..65535 (centre 32768); -1 if unavailable. */

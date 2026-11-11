@@ -9,7 +9,7 @@
     1. unpacks SETUP.ESA (USNF.EXE, USNF.SMS, USNF_1/2.LIB, Miles + CommDrv DLLs, docs)
     2. copies the CD-only data (USNF_3/7/8/10.LIB) so the disc is not needed
     3. runs the official 1.4 patch (usnf14.exe) against the new install
-    4. deploys usnf97fix (ddraw.dll + usnf97fix.ini)
+    4. deploys usnf97fix (ddraw.dll + usnf97fix.ini + usnf97cfg.exe, the controls configurator)
     5. creates USNF97.EXE, a renamed copy of USNF.EXE, and points the shortcut at it.
        Windows' compatibility database applies "IgnoreAltTab" (swallows Alt+Tab and the
        Windows key) to any exe named USNF.EXE; usnf97fix does the job of the other fix in
@@ -97,6 +97,10 @@ Step "Installing usnf97fix (ddraw.dll)"
 Copy-Item $dll -Destination $GameDir -Force
 $ini = Join-Path $GameDir 'usnf97fix.ini'
 if (-not (Test-Path $ini)) { Copy-Item (Join-Path $PSScriptRoot 'usnf97fix.ini') -Destination $ini }
+# the controls configurator (newest of dist\ and build\, like the DLL)
+$cfg = @('dist\usnf97cfg.exe', 'build\usnf97cfg.exe') | ForEach-Object { Join-Path $PSScriptRoot $_ } |
+    Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+if ($cfg) { Copy-Item $cfg -Destination $GameDir -Force }
 
 # ---------- 5. USNF97.EXE ----------
 # The game finds its symbol map as <exe name>.SMS, so the copy needs one too.
@@ -113,8 +117,15 @@ $lnk = $sh.CreateShortcut((Join-Path $lnkDir "USNF '97.lnk"))
 $lnk.TargetPath = $exe
 $lnk.WorkingDirectory = $GameDir
 $lnk.Save()
+if ($cfg) {
+    $lnk = $sh.CreateShortcut((Join-Path $lnkDir "USNF '97 Controls.lnk"))
+    $lnk.TargetPath = Join-Path $GameDir 'usnf97cfg.exe'
+    $lnk.WorkingDirectory = $GameDir
+    $lnk.Save()
+}
 
 Step "Done"
 Write-Host "    Game:  $exe   (launch this one; USNF.EXE gets Windows' Alt+Tab-blocking fix)"
 Write-Host "    Log:   $(Join-Path $GameDir 'usnf97fix.log')  (written on each start)"
+if ($cfg) { Write-Host "    Controls: $(Join-Path $GameDir 'usnf97cfg.exe')  (map controllers; profiles with fallback)" }
 Write-Host "    For IPX network play, add IPXWrapper's DLLs to $GameDir (see README.md)."

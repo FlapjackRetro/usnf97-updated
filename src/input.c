@@ -526,14 +526,106 @@ static void describe(const InSrc *s, char *out, int cap)
     (void)cap;
 }
 
+/* ---- profiles: [input] Profiles=A, B   [profile:A] Roll=... Gear=... ---- */
+static char s_profile[80];        /* section in use ("" = legacy [input]/[keys]) */
+static int  s_useProfiles;
+static DWORD s_presenceSig;
+
+static int is_role_key(const char *k)
+{
+    int i;
+    for (i = 0; i < R_COUNT; i++) if (str_ieq(k, k_roleKey[i])) return 1;
+    return 0;
+}
+
+static DWORD presence_sig(void)
+{
+    DWORD sig = (DWORD)s_ndev * 0x9E3779B1u;
+    int i;
+    for (i = 0; i < s_ndev; i++) if (s_dev[i].info.connected) sig ^= (DWORD)(i + 1) * 0x85EBCA6Bu + (DWORD)s_dev[i].info.name[0];
+    return sig;
+}
+
+/* every source in the section must name a connected device */
+static int profile_usable(const char *sect, int *nSrc)
+{
+    static char body[8192];
+    InDevInfo info[IN_MAX_DEVS];
+    char *p;
+    int i, any = 0;
+    for (i = 0; i < s_ndev; i++) info[i] = s_dev[i].info;
+    if (!GetPrivateProfileSectionA(sect, body, sizeof body, s_iniPath)) return 0;
+    for (p = body; *p; p += str_len(p) + 1) {
+        char *eq = p, *v;
+        if (*p == ';' || *p == '#') continue;
+        while (*eq && *eq != '=') eq++;
+        if (!*eq) continue;
+        v = eq + 1;
+        if (str_ieq(v, "none") || str_ieq(v, "keyboard") || str_ieq(v, "auto") || !*v) continue;
+        while (*v) {
+            char part[96];
+            int k = 0;
+            InSrc src;
+            while (*v == ' ' || *v == ',') v++;
+            while (*v && *v != ',' && k < (int)sizeof part - 1) part[k++] = *v++;
+            while (k > 0 && part[k - 1] == ' ') k--;
+            part[k] = 0;
+            if (!k) continue;
+            if (!insrc_parse(part, &src)) continue;
+            any++;
+            if (!insrc_resolve(&src, info, s_ndev) || !info[src.dev].connected) return 0;
+        }
+    }
+    *nSrc = any;
+    return any > 0;
+}
+
+static void choose_profile(void)
+{
+    char list[512], *p;
+    s_profile[0] = 0;
+    ini_str("input", "Profiles", "", list, sizeof list);
+    s_useProfiles = list[0] != 0;
+    if (!s_useProfiles) return;
+    for (p = list; *p; ) {
+        char name[64], sect[80];
+        int k = 0, n = 0;
+        while (*p == ' ' || *p == ',') p++;
+        while (*p && *p != ',' && k < (int)sizeof name - 1) name[k++] = *p++;
+        while (k > 0 && name[k - 1] == ' ') k--;
+        name[k] = 0;
+        if (!k) continue;
+        str_cpy(sect, "profile:", sizeof sect);
+        str_cat(sect, name, sizeof sect);
+        if (profile_usable(sect, &n)) {
+            str_cpy(s_profile, sect, sizeof s_profile);
+            logf("input: using profile \"%s\" (its controllers are connected)", name);
+            return;
+        }
+        logf("input: profile \"%s\" skipped (a controller it uses is not connected)", name);
+    }
+    logf("input: no profile has all its controllers connected; using the fallback ([input] Fallback)");
+}
+
 static void load_mapping(void)
 {
     char buf[512];
     int isAuto[R_COUNT], i, j;
     static char section[8192];
+    const char *roleSect, *keySect, *roleDef;
+
+    choose_profile();
+    s_presenceSig = presence_sig();
+    if (!s_useProfiles) { roleSect = "input"; keySect = "keys"; roleDef = "auto"; }
+    else if (s_profile[0]) { roleSect = keySect = s_profile; roleDef = "none"; }
+    else {
+        ini_str("input", "Fallback", "auto", buf, sizeof buf);
+        roleSect = "usnf97fix-no-such-section"; keySect = roleSect;
+        roleDef = str_ieq(buf, "keyboard") ? "none" : "auto";
+    }
 
     for (i = 0; i < R_COUNT; i++) {
-        ini_str("input", k_roleKey[i], "auto", buf, sizeof buf);
+        ini_str(roleSect, k_roleKey[i], roleDef, buf, sizeof buf);
         s_role[i].n = 0;
         isAuto[i] = str_ieq(buf, "auto") || !buf[0];
         if (isAuto[i] || str_ieq(buf, "none") || str_ieq(buf, "keyboard")) continue;
@@ -543,7 +635,7 @@ static void load_mapping(void)
 
     /* [keys]: "<key or command>=<source>[, <source>...]" */
     s_nkeys = 0;
-    if (GetPrivateProfileSectionA("keys", section, sizeof section, s_iniPath)) {
+    if (GetPrivateProfileSectionA(keySect, section, sizeof section, s_iniPath)) {
         char *p = section;
         while (*p && s_nkeys < MAX_KEYBINDS) {
             char *eq = p, *line = p;
@@ -553,6 +645,7 @@ static void load_mapping(void)
             while (*eq && *eq != '=') eq++;
             if (!*eq) continue;
             *eq = 0;
+            if (is_role_key(line)) continue;              /* profile sections hold both */
             {
                 KeyBind *kb = &s_keys[s_nkeys];
                 char *name = line;
@@ -811,6 +904,12 @@ static DWORD WINAPI input_thread(void *arg)
         for (i = 0; i < s_ndev; i++) {
             if (s_dev[i].di) poll_di(&s_dev[i]);
             else poll_pad(&s_dev[i], now);
+        }
+        if (s_useProfiles && presence_sig() != s_presenceSig) {
+            int k;
+            for (k = 0; k < s_nkeys; k++) if (s_keys[k].held) { send_key(&s_keys[k].key, 0); s_keys[k].held = 0; }
+            logf("input: controllers changed; choosing the profile again");
+            load_mapping();
         }
         compute_virtual();
         update_keys(now);

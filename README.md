@@ -60,7 +60,26 @@ Haze and fog from the mission's weather still limit how far you can see.
 
 ## Controllers
 
-The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, one hat and four buttons. usnf97fix redirects those calls to a virtual joystick fed from DirectInput 8 controllers (HOTAS, flight controllers, pedals) and XInput pads.
+The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, one hat and four buttons. usnf97fix redirects those calls to a virtual joystick fed from DirectInput 8 controllers (HOTAS, flight controllers, pedals) and XInput pads. It also sets the game's own Flight › Control choices (Joystick / Rudder pedals / Throttle stick, or Keyboard) to match at every flight start.
+
+### usnf97cfg.exe (controls configurator)
+
+Run `usnf97cfg.exe` from the game folder (the installer adds a "USNF '97 Controls" shortcut).
+
+- **Top:** pick a profile and a controller. Profiles can be created, renamed, deleted and put in order.
+- **Middle:** a live readout of the selected controller. Every axis and slider shows as a bar, every button as a lamp and every hat as a compass, so you can see which physical control is which. Controls already in use are labelled with the function they drive.
+- **Bottom:** the game's flight controls and commands. Select one, press **Listen**, and move or press the control. You can also click the control in the live readout.
+  - Axis functions (roll, pitch, throttle, rudder) take an axis. **Invert** flips it; the throttle bar shows engine power, so invert it if full forward reads 0%.
+  - Everything else takes a button, a hat direction or an axis past a point (**Axis threshold %**, optionally **when below**).
+  - **Tap** sends one key press each time a lever reaches that position. Use it for gear, flaps and hook levers.
+  - **Add another** puts a second control on the same function.
+- **Save** writes the profiles to `usnf97fix.ini`. The game picks them up the next time it starts.
+
+**Profiles and fallback.** At launch usnf97fix uses the first profile, in the configurator's order, whose controllers are all connected. If a controller is plugged in or unplugged while the game runs, it chooses again. If no profile fits, it uses the **If none fits** setting: an Xbox pad if one is connected (else the keyboard), or the keyboard only. Profiles are stored as `[input] Profiles=A, B` plus one `[profile:A]` section each.
+
+### Editing the ini by hand
+
+Without profiles (`Profiles=` empty), `[input]` and `[keys]` are used directly, as before:
 
 1. Start the game once and open `usnf97fix.log`. It lists every controller with its axes, buttons and hats, plus the mapping that `auto` chose.
 2. Adjust `[input]` in `usnf97fix.ini` if needed. For example:
@@ -71,8 +90,9 @@ The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, 
    Rudder=Echo:RZ
    ```
    To find what your controller calls each control, set `LogInput=1`, move every control, and read the log.
-3. In the game, open Flight › Control. For each part you mapped, choose Stick = Joystick (or a stick preset), Rudder = Rudder pedals, and Throttle = Throttle stick. Parts you didn't map stay on Keyboard.
-4. Bind anything else in `[keys]`, for example `Gear=Echo:B9`, `Flaps=Echo:B10`, or `Afterburner=Echo:S1<5`. All commands are listed in the ini.
+3. Bind anything else in `[keys]`, for example `Gear=Echo:B9`, `Flaps=Echo:B10`, or `Afterburner=Echo:S1<5`. All commands are listed in the ini.
+
+The first time `usnf97cfg.exe` opens an ini with a hand-written mapping, it imports it as a profile. The old lines stay in the file but are ignored once profiles are saved.
 
 Xbox-style pads work automatically: left stick for pitch/roll, triggers for rudder, RB/LB for throttle up/down, d-pad as the hat, and A/B/X/Y as buttons 1–4.
 
@@ -93,10 +113,16 @@ The game was built with a symbol map, `USNF.SMS`, which it installs next to the 
 ## Building
 
 ```sh
-./build.sh          # Linux with clang + lld; produces build/ddraw.dll
+./build.sh          # Linux with clang + lld; produces build/ddraw.dll and build/usnf97cfg.exe
 ```
 
-No Windows SDK or C runtime is needed; the declarations are in `src/win32_min.h` and `src/ddraw_min.h`.
+No Windows SDK or C runtime is needed; the declarations are in `src/win32_min.h`, `src/ddraw_min.h` and `src/cfg/cfg_win.h`.
+
+`tests/test_input_core.c` tests the controller mapping syntax shared by the DLL and the configurator:
+
+```sh
+gcc -o /tmp/tic tests/test_input_core.c src/input_core.c && /tmp/tic
+```
 
 `tests/test_patch_core.c` checks the patch matcher against a real `USNF.EXE` + `USNF.SMS` pair:
 
@@ -109,6 +135,7 @@ gcc -o /tmp/t tests/test_patch_core.c src/patch_core.c && /tmp/t path/to/USNF.EX
 | Path | What |
 |---|---|
 | `src/` | the `ddraw.dll` shim |
+| `src/cfg/` | `usnf97cfg.exe`, the controls configurator |
 | `tools/esa_extract.py` | unpacker for EA's `SETUP.ESA` archives (PKWARE DCL "implode") |
 | `tools/sms_dump.py` | dumps `USNF.SMS` symbol maps |
 | `install.ps1` | installer |

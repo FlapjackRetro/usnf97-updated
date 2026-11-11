@@ -63,5 +63,16 @@ int main(void)
     { int i, bad = 0; for (i = 0; g_inAliases[i].name; i++) if (!keyspec_parse(g_inAliases[i].key, &k)) { printf("     bad alias %s\n", g_inAliases[i].name); bad++; }
       CHECK(!bad, "all %d aliases parse", i); }
     printf(fails ? "\n%d FAILED\n" : "\nall passed\n", fails);
+        {   /* insrc_format round trip (used by usnf97cfg.exe) */
+        static const char *const rt[] = { "Echo Aviation Controller:X", "pad:RT-LT", "Echo:RZ~", "#2:B5!", "Echo:POV1U",
+                                          "Echo:S1>80", "Echo:Z<5!", "Echo:RX~>50", "pad:DPAD", "pad:LB" };
+        unsigned k;
+        for (k = 0; k < sizeof rt / sizeof rt[0]; k++) {
+            InSrc s; char out[96];
+            int okp = insrc_parse(rt[k], &s);
+            insrc_format(&s, out, sizeof out);
+            CHECK(okp && !strcmp(out, rt[k]), "format round trip %s -> %s", rt[k], out);
+        }
+    }
     return fails != 0;
 }
