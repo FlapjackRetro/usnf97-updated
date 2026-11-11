@@ -142,6 +142,8 @@ typedef struct { HDC hdc; BOOL fErase; RECT rcPaint; BOOL fRestore; BOOL fIncUpd
 #define WM_APP          0x8000
 #define SC_KEYMENU      0xF100
 #define VK_RETURN       0x0D
+#define VK_TAB          0x09
+#define VK_ESCAPE       0x1B
 
 /* ---- kernel32 ---- */
 IMPORT void   WINAPI InitializeCriticalSection(CRITICAL_SECTION *);
@@ -157,6 +159,7 @@ IMPORT void   WINAPI Sleep(DWORD);
 IMPORT BOOL   WINAPI QueryPerformanceCounter(LARGE_INTEGER *);
 IMPORT BOOL   WINAPI QueryPerformanceFrequency(LARGE_INTEGER *);
 IMPORT HMODULE WINAPI GetModuleHandleA(const char *);
+IMPORT DWORD WINAPI GetLastError(void);
 IMPORT DWORD  WINAPI GetModuleFileNameA(HMODULE, char *, DWORD);
 IMPORT HMODULE WINAPI LoadLibraryA(const char *);
 IMPORT FARPROC WINAPI GetProcAddress(HMODULE, const char *);
@@ -184,6 +187,9 @@ typedef struct { DWORD ExceptionCode; DWORD ExceptionFlags; void *ExceptionRecor
 typedef struct { EXCEPTION_RECORD *ExceptionRecord; BYTE *ContextRecord; } EXCEPTION_POINTERS;
 #define CONTEXT_EIP_OFFSET 0xB8                 /* x86 CONTEXT.Eip */
 #define EXCEPTION_PRIV_INSTRUCTION 0xC0000096ul
+#define EXCEPTION_INT_OVERFLOW     0xC0000095ul
+#define CONTEXT_EDX_OFFSET 0xA8
+#define CONTEXT_EAX_OFFSET 0xB0
 #define EXCEPTION_CONTINUE_EXECUTION (-1)
 #define EXCEPTION_CONTINUE_SEARCH 0
 typedef LONG (WINAPI *PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS *);
@@ -253,5 +259,28 @@ IMPORT UINT WINAPI timeEndPeriod(UINT);
 #define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
 #define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
 #define MAKELPARAM(l, h) ((LPARAM)(DWORD)(((WORD)(l)) | (((DWORD)(WORD)(h)) << 16)))
+
+
+/* hang watchdog */
+typedef unsigned long  DWORD_PTR;
+typedef unsigned long  SIZE_T;
+#define MAX_PATH 260
+#define WM_NULL 0x0000
+#define SMTO_NORMAL 0
+#define THREAD_SUSPEND_RESUME     0x0002
+#define THREAD_GET_CONTEXT        0x0008
+#define THREAD_QUERY_INFORMATION  0x0040
+#define GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT 0x2
+#define GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS       0x4
+IMPORT DWORD   WINAPI GetEnvironmentVariableA(const char *, char *, DWORD);
+IMPORT HANDLE  WINAPI OpenThread(DWORD, BOOL, DWORD);
+IMPORT DWORD   WINAPI SuspendThread(HANDLE);
+IMPORT DWORD   WINAPI ResumeThread(HANDLE);
+IMPORT BOOL    WINAPI GetThreadContext(HANDLE, void *);
+IMPORT DWORD   WINAPI GetThreadId(HANDLE);
+IMPORT BOOL    WINAPI ReadProcessMemory(HANDLE, const void *, void *, SIZE_T, SIZE_T *);
+IMPORT BOOL    WINAPI GetModuleHandleExA(DWORD, const char *, HMODULE *);
+IMPORT DWORD   WINAPI GetWindowThreadProcessId(HWND, DWORD *);
+IMPORT LRESULT WINAPI SendMessageTimeoutA(HWND, UINT, WPARAM, LPARAM, UINT, UINT, DWORD_PTR *);
 
 #endif

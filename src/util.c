@@ -76,6 +76,7 @@ void config_load(void)
     g_cfg.minFrameTicks     = GetPrivateProfileIntA(S, "MinFrameTicks", 5, s_iniPath);
     g_cfg.pauseInBackground = GetPrivateProfileIntA(S, "PauseInBackground", 1, s_iniPath);
     g_cfg.confineMouse      = GetPrivateProfileIntA(S, "ConfineMouse", 1, s_iniPath);
+    g_cfg.traceMessages     = GetPrivateProfileIntA(S, "TraceMessages", 0, s_iniPath);
     g_cfg.log               = GetPrivateProfileIntA(S, "Log", 1, s_iniPath);
     GetPrivateProfileStringA(S, "CDPath", "", g_cfg.cdPath, sizeof g_cfg.cdPath, s_iniPath);
 

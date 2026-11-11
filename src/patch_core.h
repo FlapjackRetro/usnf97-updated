@@ -16,6 +16,8 @@ typedef struct {
 int    sms_parse(SmsMap *m, const pc_u8 *data, pc_u32 size);
 pc_u32 sms_find(const SmsMap *m, const char *name);      /* 0 if missing */
 pc_u32 sms_size(const SmsMap *m, pc_u32 addr);           /* distance to next symbol, 0 if unknown */
+/* Name of the closest symbol at or below addr (NULL if none); *base gets its address. */
+const char *sms_nearest(const SmsMap *m, pc_u32 addr, pc_u32 *base);
 
 typedef struct {
     pc_u32 callSite;      /* VA of "call readClock" inside TIMEUpdate */

@@ -168,7 +168,13 @@ static void subclass(HWND hwnd)
     if (s_origProc || !hwnd) return;
     s_hwnd = hwnd;
     s_origProc = (WNDPROC)GetWindowLongA(hwnd, GWL_WNDPROC);
-    SetWindowLongA(hwnd, GWL_WNDPROC, (LONG)subclass_proc);
+    {
+        LONG prev = SetWindowLongA(hwnd, GWL_WNDPROC, (LONG)subclass_proc);
+        DWORD err = GetLastError();
+        LONG now = GetWindowLongA(hwnd, GWL_WNDPROC);
+        logf("subclass: orig %08lX, set returned %08lX (err %lu), now %08lX, ours %08lX, trace=%d",
+             (DWORD)s_origProc, (DWORD)prev, err, (DWORD)now, (DWORD)subclass_proc, g_cfg.traceMessages);
+    }
 }
 
 /* -------- IAT hooks (exe only) -------- */
@@ -184,6 +190,7 @@ HWND WINAPI hook_CreateWindowExA(DWORD ex, const char *cls, const char *title, D
     logf("CreateWindowExA: game window %08lX (requested style %08lX %dx%d)", (DWORD)hwnd, style, w, h);
     if (hwnd) {
         subclass(hwnd);
+        hang_watch_start(hwnd);
         apply_layout(hwnd);
     }
     return hwnd;
@@ -211,8 +218,36 @@ int WINAPI hook_ShowCursor(BOOL show)
 }
 
 /* -------- window procedure -------- */
+static void trace_msg(UINT msg, WPARAM wp, LPARAM lp)
+{
+    static int n;
+    const char *name = NULL;
+    switch (msg) {
+    case 0x0006: name = "WM_ACTIVATE"; break;
+    case 0x0007: name = "WM_SETFOCUS"; break;
+    case 0x0008: name = "WM_KILLFOCUS"; break;
+    case WM_ACTIVATEAPP: name = "WM_ACTIVATEAPP"; break;
+    case WM_KEYDOWN: name = "WM_KEYDOWN"; break;
+    case WM_KEYUP: name = "WM_KEYUP"; break;
+    case WM_SYSKEYDOWN: name = "WM_SYSKEYDOWN"; break;
+    case WM_SYSKEYUP: name = "WM_SYSKEYUP"; break;
+    case WM_SYSCHAR: name = "WM_SYSCHAR"; break;
+    case WM_SYSCOMMAND: name = "WM_SYSCOMMAND"; break;
+    case 0x0086: name = "WM_NCACTIVATE"; break;
+    case 0x0112 + 0x100: break;
+    }
+    if (!name || n >= 120 || !g_cfg.traceMessages) return;
+    n++;
+    logf("msg %-15s w=%08lX l=%08lX fg=%08lX", name, (DWORD)wp, (DWORD)lp, (DWORD)GetForegroundWindow());
+}
+
 static LRESULT CALLBACK subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    {
+        static int first;
+        if (!first) { first = 1; logf("subclass_proc: first message %04X", msg); }
+    }
+    trace_msg(msg, wp, lp);
     switch (msg) {
     case WM_USNF_LAYOUT:
         apply_layout(hwnd);
@@ -250,7 +285,12 @@ static LRESULT CALLBACK subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             return r;
         }
     case WM_SYSKEYDOWN:
-        if (wp == VK_RETURN && (lp & (1 << 29))) { toggle_borderless(hwnd); return 0; }
+    case WM_SYSKEYUP:
+        if (msg == WM_SYSKEYDOWN && wp == VK_RETURN && (lp & (1 << 29))) { toggle_borderless(hwnd); return 0; }
+        /* The game swallows every WM_SYSKEY* and never calls DefWindowProc, which kills
+         * Alt+Tab (and Alt+Esc) for a windowed game. Give those to Windows only: the
+         * game must not see Tab (its gun key) go down without ever seeing it go up. */
+        if ((wp == VK_TAB || wp == VK_ESCAPE) && (lp & (1 << 29))) return DefWindowProcA(hwnd, msg, wp, lp);
         break;
     case WM_SYSCHAR:
         return 0;                                          /* no "ding" on Alt+key */

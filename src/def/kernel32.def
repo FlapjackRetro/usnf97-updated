@@ -13,6 +13,7 @@ Sleep@4
 QueryPerformanceCounter@4
 QueryPerformanceFrequency@4
 GetModuleHandleA@4
+GetLastError@0
 GetModuleFileNameA@12
 LoadLibraryA@4
 GetProcAddress@8
@@ -36,3 +37,10 @@ OutputDebugStringA@4
 AddVectoredExceptionHandler@8
 GetPrivateProfileSectionA@16
 InterlockedCompareExchange@12
+OpenThread@12
+SuspendThread@4
+ResumeThread@4
+GetThreadContext@8
+GetThreadId@4
+ReadProcessMemory@20
+GetModuleHandleExA@12

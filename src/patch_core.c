@@ -21,6 +21,21 @@ int sms_parse(SmsMap *m, const pc_u8 *data, pc_u32 size)
     return 1;
 }
 
+const char *sms_nearest(const SmsMap *m, pc_u32 addr, pc_u32 *base)
+{
+    pc_u32 i, best = 0;
+    const char *name = 0;
+    if (!m->data) return 0;
+    for (i = 0; i < m->count; i++) {
+        const pc_u8 *e = m->data + 4 + i * 8;
+        pc_u32 a = rd(e + 4), off = m->strBase + rd(e);
+        if (a > addr || a < best || off >= m->size) continue;
+        best = a; name = (const char *)m->data + off;
+    }
+    if (base) *base = best;
+    return name;
+}
+
 pc_u32 sms_find(const SmsMap *m, const char *name)
 {
     pc_u32 i;

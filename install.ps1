@@ -10,6 +10,10 @@
     2. copies the CD-only data (USNF_3/7/8/10.LIB) so the disc is not needed
     3. runs the official 1.4 patch (usnf14.exe) against the new install
     4. deploys usnf97fix (ddraw.dll + usnf97fix.ini)
+    5. creates USNF97.EXE, a renamed copy of USNF.EXE, and points the shortcut at it.
+       Windows' compatibility database applies "IgnoreAltTab" (swallows Alt+Tab and the
+       Windows key) to any exe named USNF.EXE; usnf97fix does the job of the other fix in
+       that entry ("USNF97": CLI/STI and division overflow), so nothing is lost.
 
 .PARAMETER Disc
   Drive or folder with the USNF '97 CD contents (SETUP.ESA, USNF_10.LIB, ...). Default H:\
@@ -43,9 +47,10 @@ $esa = Join-Path $Disc 'SETUP.ESA'
 if (-not (Test-Path $esa)) { throw "SETUP.ESA not found in '$Disc'. Point -Disc at the USNF '97 CD." }
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) { throw "Python 3 is needed for the archive extractor ('python' not on PATH)." }
-$dll = Join-Path $PSScriptRoot 'dist\ddraw.dll'
-if (-not (Test-Path $dll)) { $dll = Join-Path $PSScriptRoot 'build\ddraw.dll' }
-if (-not (Test-Path $dll)) { throw "ddraw.dll not found in dist\ or build\ (build it with build.sh first)." }
+# newest of dist\ and build\ (a stale dist\ copy must not win over a fresh build)
+$dll = @('dist\ddraw.dll', 'build\ddraw.dll') | ForEach-Object { Join-Path $PSScriptRoot $_ } |
+    Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+if (-not $dll) { throw "ddraw.dll not found in dist\ or build\ (build it with build.sh first)." }
 if ((Join-Path $GameDir '').Length -gt 60) {
     Write-Warning "'$GameDir' is long; the game can only hold a 60-character data path. The fix will try the 8.3 short name."
 }
@@ -93,16 +98,23 @@ Copy-Item $dll -Destination $GameDir -Force
 $ini = Join-Path $GameDir 'usnf97fix.ini'
 if (-not (Test-Path $ini)) { Copy-Item (Join-Path $PSScriptRoot 'usnf97fix.ini') -Destination $ini }
 
+# ---------- 5. USNF97.EXE ----------
+# The game finds its symbol map as <exe name>.SMS, so the copy needs one too.
+Step "Creating USNF97.EXE (avoids Windows' IgnoreAltTab compatibility fix)"
+Copy-Item (Join-Path $GameDir 'USNF.EXE') (Join-Path $GameDir 'USNF97.EXE') -Force
+Copy-Item (Join-Path $GameDir 'USNF.SMS') (Join-Path $GameDir 'USNF97.SMS') -Force
+$exe = Join-Path $GameDir 'USNF97.EXE'
+
 # Start menu shortcut, like the original installer made
 $lnkDir = Join-Path ([Environment]::GetFolderPath('Programs')) "Jane's Combat Simulations"
 New-Item -ItemType Directory -Force -Path $lnkDir | Out-Null
 $sh = New-Object -ComObject WScript.Shell
 $lnk = $sh.CreateShortcut((Join-Path $lnkDir "USNF '97.lnk"))
-$lnk.TargetPath = Join-Path $GameDir 'USNF.EXE'
+$lnk.TargetPath = $exe
 $lnk.WorkingDirectory = $GameDir
 $lnk.Save()
 
 Step "Done"
-Write-Host "    Game:  $(Join-Path $GameDir 'USNF.EXE')"
+Write-Host "    Game:  $exe   (launch this one; USNF.EXE gets Windows' Alt+Tab-blocking fix)"
 Write-Host "    Log:   $(Join-Path $GameDir 'usnf97fix.log')  (written on each start)"
 Write-Host "    For IPX network play, add IPXWrapper's DLLs to $GameDir (see README.md)."

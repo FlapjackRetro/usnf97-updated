@@ -34,3 +34,5 @@ wvsprintfA@12
 ClientToScreen@8
 ClipCursor@4
 GetClipCursor@4
+GetWindowThreadProcessId@8
+SendMessageTimeoutA@28

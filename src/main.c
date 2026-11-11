@@ -26,6 +26,22 @@ HRESULT WINAPI DirectDrawEnumerateA(LPDDENUMCALLBACKA cb, void *ctx)
     return DD_OK;
 }
 
+/* Windows application-compatibility shims (AppCompat database or a compatibility mode
+ * chosen in the exe's Properties) load these DLLs; some filter Alt+Tab / Windows key. */
+static void log_compat(void)
+{
+    static const char *const k_shimDlls[] = {
+        "apphelp.dll", "AcLayers.dll", "AcGenral.dll", "AcXtrnal.dll", "AcSpecfc.dll",
+        "AcWinRT.dll", "acppage.dll", "AcRes.dll", "AcDxCompat.dll", 0 };
+    char env[512];
+    int i;
+    DWORD n = GetEnvironmentVariableA("__COMPAT_LAYER", env, sizeof env);
+    if (n && n < sizeof env) logf("compat: __COMPAT_LAYER=%s", env);
+    else logf("compat: __COMPAT_LAYER not set");
+    for (i = 0; k_shimDlls[i]; i++)
+        if (GetModuleHandleA(k_shimDlls[i])) logf("compat: %s loaded", k_shimDlls[i]);
+}
+
 BOOL WINAPI DllMainCRTStartup(HINSTANCE inst, DWORD reason, void *reserved)
 {
     (void)reserved;
@@ -48,6 +64,7 @@ BOOL WINAPI DllMainCRTStartup(HINSTANCE inst, DWORD reason, void *reserved)
         logf("config: FixGameSpeed=%d MinFrameTicks=%d PauseInBackground=%d CDPath='%s'",
              g_cfg.fixGameSpeed, g_cfg.minFrameTicks, g_cfg.pauseInBackground, g_cfg.cdPath);
         patches_apply();
+        log_compat();
         log_raw("[start] DllMain done");
     }
     return TRUE;

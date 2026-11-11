@@ -82,6 +82,16 @@ static int sms_load(void)
     return 1;
 }
 
+DWORD patches_symbol(const char *name) { return sms_find(&s_sms, name); }
+
+const char *patches_symbol_at(DWORD addr, DWORD *base)
+{
+    pc_u32 b = 0;
+    const char *n = sms_nearest(&s_sms, addr, &b);
+    if (base) *base = b;
+    return n;
+}
+
 /* ------------------------------------------------------------------ */
 /* Fix 1: CD path. _cdpath() only scans CD drives when CDPATH is empty. */
 /* ------------------------------------------------------------------ */
@@ -191,18 +201,35 @@ static void patch_timeupdate(void)
 static DWORD s_imageLo, s_imageHi;
 static volatile LONG s_cliSkipped;
 
+static LONG s_divFixed;
+
+/* Mirrors what Windows' own "USNF97" compatibility fix (AcSpecfc.dll) does, so the game
+ * runs the same without it (Windows only applies that fix to an exe named USNF.EXE, together
+ * with IgnoreAltTab, which swallows Alt+Tab and the Windows key):
+ *   - CLI/STI (privileged on NT): skip the instruction.
+ *   - integer division overflow at a DIV/IDIV (F7 /6, /7): clear EDX, make EAX positive,
+ *     and retry the division. */
 static LONG WINAPI priv_handler(EXCEPTION_POINTERS *ep)
 {
-    DWORD *eip;
-    BYTE op;
-    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_PRIV_INSTRUCTION) return EXCEPTION_CONTINUE_SEARCH;
-    eip = (DWORD *)(ep->ContextRecord + CONTEXT_EIP_OFFSET);
-    if (*eip < s_imageLo || *eip >= s_imageHi) return EXCEPTION_CONTINUE_SEARCH;
-    op = *(const BYTE *)*eip;
-    if (op != 0xFA && op != 0xFB) return EXCEPTION_CONTINUE_SEARCH;
-    if (s_cliSkipped++ == 0) logf("privileged %s at %08lX skipped (further ones are skipped silently)", op == 0xFA ? "CLI" : "STI", *eip);
-    *eip += 1;
-    return EXCEPTION_CONTINUE_EXECUTION;
+    BYTE *ctx = (BYTE *)ep->ContextRecord;
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    DWORD *eip = (DWORD *)(ctx + CONTEXT_EIP_OFFSET);
+    const BYTE *ins;
+    if (*eip < s_imageLo || *eip >= s_imageHi - 2) return EXCEPTION_CONTINUE_SEARCH;
+    ins = (const BYTE *)*eip;
+    if (code == EXCEPTION_PRIV_INSTRUCTION && (ins[0] == 0xFA || ins[0] == 0xFB)) {
+        if (s_cliSkipped++ == 0) logf("privileged %s at %08lX skipped (further ones are skipped silently)", ins[0] == 0xFA ? "CLI" : "STI", *eip);
+        *eip += 1;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    if (code == EXCEPTION_INT_OVERFLOW && (ins[0] == 0xF7 || ins[1] == 0xF7)) {
+        DWORD *edx = (DWORD *)(ctx + CONTEXT_EDX_OFFSET), *eax = (DWORD *)(ctx + CONTEXT_EAX_OFFSET);
+        if (s_divFixed++ < 4) logf("division overflow at %08lX (edx:eax %08lX:%08lX) corrected", *eip, *edx, *eax);
+        *edx = 0;
+        if ((LONG)*eax < 0) *eax = (DWORD)-(LONG)*eax;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,7 +271,7 @@ void patches_apply(void)
 
     s_imageLo = (DWORD)s_base;
     s_imageHi = (DWORD)s_base + rd32(nt + 0x50);          /* SizeOfImage */
-    logf("CLI/STI handler: %s", AddVectoredExceptionHandler(1, priv_handler) ? "installed" : "FAILED");
+    logf("CLI/STI + division fix handler: %s", AddVectoredExceptionHandler(1, priv_handler) ? "installed" : "FAILED");
 
     /* window / cursor hooks: independent of the game build */
     logf("hook CreateWindowExA: %s", iat_hook(exe, "USER32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA, NULL) ? "ok" : "FAILED");

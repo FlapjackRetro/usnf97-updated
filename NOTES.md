@@ -84,3 +84,12 @@ See `analysis/usnf_1.0_symbols.txt`.
 - `HUDDraw` blits the canopy at 1:1 (no scaling) with its hotspot on the HUD centre, which is the projected boresight. The HUD centre shifts with G-load (head bob), so the art has margin beyond the screen edges.
 - `HUDInit`: 640×480 loads `~xxxh` with the 640 hotspot. Any other mode loads `~xxx`, and if the width isn't 320 it **frees it again**: 800×600, 1024×768 and 1600×1200 draw no canopy frame at all.
 - At 640×480 the visible canopy columns are 320–959. A 16:9 view at 480 lines (854 wide) would show columns 213–1066, all inside the art.
+
+## Windows compatibility database entry (why the game runs as USNF97.EXE)
+
+`C:\Windows\apppatch\sysmain.sdb` has an entry for `USNF.EXE` (app "USNF '97", Electronic Arts; matched by exe name plus sibling files CDRVDL32/CDRVHF32/CDRVXF32.DLL, USNF_1.LIB, WAIL32.DLL, BRIEFING.TXT). It applies two shims:
+
+- **IgnoreAltTab** (AcGenral.dll, include modules DINPUT/DINPUT8/DINPUT9). In practice Alt+Tab and the Windows key are swallowed system-wide while the game is foreground. Windows takes the key (the game never gets the Tab or VK_LWIN) and then does nothing. This happens with or without DirectInput loaded in the process.
+- **USNF97** (AcSpecfc.dll, `NS_USNF97::USNF97_ExceptionFilter`). If the faulting instruction is FA/FB (CLI/STI), it skips it. If it is F7 (DIV/IDIV, optionally after a 1-byte prefix), it sets EDX = 0, makes EAX positive and retries. usnf97fix's vectored handler does both (division only for STATUS_INTEGER_OVERFLOW, since retrying a divide-by-zero would loop).
+
+Diagnosis notes: message tracing showed the subclassed window got Alt but never Tab or VK_LWIN, and the window thread stayed responsive (the hang watchdog in hangwatch.c never fired). apphelp.dll, AcGenral.dll and AcSpecfc.dll were loaded with no compatibility mode set in Properties. Renaming the exe stops the match. The game then needs `<exe>.SMS`: SMInit builds the symbol-map name from the module file name and reports a missing file as "Not enough memory."

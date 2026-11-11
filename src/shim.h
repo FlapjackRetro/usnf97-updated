@@ -18,6 +18,7 @@ typedef struct {
     int  minFrameTicks;     /* game timestep floor in 1/256 s (game hard-codes 5) */
     int  pauseInBackground; /* 1 = vanilla: game pauses when it loses focus */
     int  confineMouse;      /* 1 = keep the pointer in the game picture while it is active */
+    int  traceMessages;     /* debug: log keyboard/activation window messages */
     int  log;               /* 1 = write usnf97fix.log */
     char cdPath[260];       /* "" = auto (game folder if USNF_10.LIB is there, else scan CDs) */
 } Config;
@@ -135,6 +136,9 @@ int  WINAPI hook_ShowCursor(BOOL);
 BOOL WINAPI hook_ClipCursor(const RECT *);
 
 /* ---------- exe patching ---------- */
+DWORD patches_symbol(const char *name);            /* USNF.SMS lookup, 0 if unknown */
+const char *patches_symbol_at(DWORD addr, DWORD *base);
+void hang_watch_start(HWND hwnd);
 void patches_apply(void);                          /* DllMain: CD path, IAT hooks, speed fix */
 int  iat_hook(HMODULE mod, const char *dll, const char *func, void *repl, void **orig);
 

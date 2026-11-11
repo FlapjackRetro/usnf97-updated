@@ -31,7 +31,9 @@ From PowerShell in this folder:
 .\install.ps1 -Disc H:\ -GameDir C:\JANES\USNF97
 ```
 
-When the 1.4 patcher's window appears, confirm it. If it asks where the game is, pick the game folder. After that, start `USNF.EXE` from the game folder or from the Start menu shortcut.
+When the 1.4 patcher's window appears, confirm it. If it asks where the game is, pick the game folder. After that, start **`USNF97.EXE`** from the game folder or from the Start menu shortcut.
+
+`USNF97.EXE` is an identical copy of `USNF.EXE` with a different name, plus `USNF97.SMS` (the game loads the symbol file named after its exe). It exists because Windows' compatibility database applies a fix called *IgnoreAltTab* to any program named `USNF.EXE`. That fix swallows Alt+Tab and the Windows key. The database's other fix for this game (CLI/STI and division-overflow handling) is built into usnf97fix, so the copy loses nothing. If you re-patch `USNF.EXE`, copy it to `USNF97.EXE` again.
 
 If PowerShell blocks the script, run it once with `powershell -ExecutionPolicy Bypass -File .\install.ps1 ...`.
 
