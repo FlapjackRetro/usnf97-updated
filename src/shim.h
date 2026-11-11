@@ -23,6 +23,7 @@ typedef struct {
 
 extern Config g_cfg;
 extern char   g_gameDir[260];   /* exe folder, with trailing backslash */
+extern char   g_iniPath[280];   /* usnf97fix.ini */
 
 void config_load(void);
 void log_open(void);
@@ -113,6 +114,16 @@ void present_mark_dirty(int commit);                /* commit=1: frame complete,
 void present_wait_vblank(void);
 int  present_is_primary_mem(const DDSurface *s);    /* is s the visible front buffer? */
 DDSurface *present_primary(void);                   /* call with g_ddLock held */
+
+HWND present_hwnd(void);
+
+/* ---------- input (input.c) ---------- */
+void input_configure(void);          /* DllMain: read [input] Enable */
+int  input_enabled(void);
+UINT WINAPI hook_joyGetNumDevs(void);
+UINT WINAPI hook_joyGetDevCapsA(UINT_PTR id, void *caps, UINT cb);
+UINT WINAPI hook_joyGetPos(UINT id, void *ji);
+UINT WINAPI hook_joyGetPosEx(UINT id, void *ji);
 
 /* exe IAT hooks (installed from DllMain) */
 HWND WINAPI hook_CreateWindowExA(DWORD, const char *, const char *, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, void *);

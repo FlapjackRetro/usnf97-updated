@@ -36,6 +36,7 @@ BOOL WINAPI DllMainCRTStartup(HINSTANCE inst, DWORD reason, void *reserved)
         config_load();
         log_open();
         time_init();
+        input_configure();
         GetModuleFileNameA(NULL, exe, sizeof exe);
         logf("usnf97fix %s loaded into %s", SHIM_VERSION, exe);
         logf("config: WindowMode=%d WindowScale=%d Filter=%d AspectCorrect=%d Stretch=%d VSync=%d FrameCap=%d",

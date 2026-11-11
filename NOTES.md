@@ -43,3 +43,37 @@ The fix redirects the `call readClock` at +4 to a wait that returns once ≥ Min
 3,440 entries (2,214 in .text incl. CRT, 1,226 data). Format: `u32 count; {u32 stroff, u32 addr}[count]; names`.
 Dump: `tools/sms_dump.py USNF.SMS`. MSVC 4.x C++ mangled names plus C/fastcall/stdcall decorated names.
 See `analysis/usnf_1.0_symbols.txt`.
+
+## 1.4 patch (usnf14.exe → USNF.EXE 1998-12-07, USNF.SMS 3,560 symbols)
+- Imports: unchanged DLL list. New user32 imports `ClipCursor`, `SendMessageA`, `SetDlgItemTextA` and `SetRect`; no DirectInput.
+- New code is almost entirely networking (TCP/UDP lobby, player lists), plus a JPEG decoder and `ShutdownJoysticks`.
+- `TIMEUpdate` is byte-identical to 1.0 (same 5-tick clamp). The patch notes' "frame rate limited to 52 fps" is that clamp (256/5 = 51.2): it fixes the *step*, not the frame time, so fast machines still run fast. The usnf97fix speed patch matches 1.4 unchanged (TIMEUpdate 0x40e8d0, clock 0x40ea20, now 0x51160c, last 0x511660, compression 0x511618).
+- `CDPATH` is at 0x4d63c8 (416 bytes).
+
+## Input (1.0 and 1.4)
+- WinMM only: `joyGetNumDevs`, `joyGetDevCapsA`, `joyGetPos` and `joyGetPosEx`. Up to 16 devices are scanned.
+- `InitJoysticks` assigns each control to the first device that has it: X/Y stick (`joystickXDevice`/`YDevice`), throttle (JOYCAPS_HASZ), rudder (HASR) and POV hat (HASPOV). Pedals or a throttle on a separate device therefore work.
+- Buttons: only the first four are used. Button 4 = next missile. Buttons 1–3 map to gun / weapon release / weapon-cycle (a fake keypress), in an order that depends on Flight › Control › Stick (`_stickDevice`, `PotStick` switch):
+
+  | Stick setting | value | button 1 | button 2 | button 3 |
+  |---|---|---|---|---|
+  | Keyboard / Joystick | 0 / 1 | weapon | cycle | gun |
+  | CH F-16 Flight Stick | 2 | gun | weapon | cycle |
+  | CH F-16 Combat Stick | 3 | gun | cycle | weapon |
+  | CH Flightstick Pro | 4 | gun | weapon | cycle |
+  | Microsoft Sidewinder 3D Pro | 5 | gun | weapon | cycle |
+  | Jane's Combat Stick (**new in 1.4**) | 10 | gun | cycle | weapon |
+- The POV hat is converted to arrow-key presses (`GetPOV`: 0x48/0x4D/0x50/0x4B).
+- Rudder: Keyboard or Rudder pedals. Throttle: Keyboard or Throttle stick. Throttle calibration (`InputCalibrate`) asks for the afterburner detent.
+- `InitJoysticks`, `ReadDevice`, `NormalizeStick`, `PotThrottle` and `GetPOV` are logically unchanged in 1.4 (only relocations and register allocation differ).
+
+## CLI/STI in the video player (fixed by usnf97fix)
+`MainLoop` (the Cobra video loop run by `PlayCobra` for the intro movies and reference videos) reads the clock between `cli`/`sti`. It has 13 CLI and 14 STI in both 1.0 and 1.4. NT-based Windows raises STATUS_PRIVILEGED_INSTRUCTION for these, and the game's own handlers only cover divide/overflow/access violation. usnf97fix installs a vectored handler that skips a faulting FA/FB byte inside USNF.EXE's image.
+
+## Joystick internals (for the input layer)
+- `ReadDevice` reads a device at most every 50 ms (`sub eax,ecx; cmp eax,32h; jae` after `timeGetTime`). It uses `joyGetPosEx(JOY_RETURNALL)` when the caps report ≥3 axes or ≥4 buttons, otherwise `joyGetPos`.
+- `InitJoysticks` scans `joyGetNumDevs()` devices. A device must pass both `joyGetDevCapsA` and `joyGetPos`. X/Y are taken from the first device whose X range is non-empty; throttle needs JOYCAPS_HASZ, rudder HASR, hat HASPOV.
+- `NormalizeStick` scales each axis using the caps min/max to ±256. It takes the **first** stick reading as the centre.
+- Throttle (`PotThrottle`) = −normalized Z, so minimum Z = full power. `InputCalibrate` stores the afterburner detent.
+- Keyboard: `KEYEvent` uses the **scancode** from lParam (bits 16–22) and tracks Shift (2A/36), Ctrl (1D) and Alt (38) itself. Held keys go to `_keyarray[scancode]`: arrows = stick, End/PgDn = rudder, Space = weapon, Tab = gun. Throttle keys: 1 idle, 2/3/4 = 25/50/75 %, 5 full, 6 afterburner, 7 −5 %, 8 +5 %.
+- Flight menu accelerators (FMENUD.MNU): F1–F10 and F12 views, Shift+1–9 windows, Ctrl+P pause, Shift+C slow motion, Ctrl+T target info, Alt+S radio silence, Ctrl+Q end mission, Backspace cockpit. Single-key commands (FlightKey): a autopilot, b brakes, d damage, f flaps, g gear, h hook, j jammer, t target, [ ] weapon select, E eject, Insert chaff, Delete flare.

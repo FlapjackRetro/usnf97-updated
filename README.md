@@ -12,7 +12,9 @@ What you get:
   - Mouse coordinates are mapped correctly in windowed mode, and the cursor isn't hidden over the title bar.
   - **The game runs at the correct speed.** It advances its clock by at least 5/256 s per frame, so on modern PCs the simulation ran faster than real time.
   - **No CD needed** once the data files are copied to the game folder.
-- **IPX network play** works through [IPXWrapper](https://github.com/solemnwarning/ipxwrapper), a third-party download (see below).
+  - **The intro and reference movies no longer crash.** The video player still uses the DOS-era CLI/STI instructions, which Windows 9x tolerated but NT-based Windows doesn't.
+- **Controllers through DirectInput 8 and XInput.** Use any mix of controllers plus the keyboard. Stick, throttle, rudder pedals, hat and buttons can come from different devices, and anything left unmapped stays on the keyboard. Extra buttons, hat directions and lever positions can press any game command, such as gear, flaps, views or ThrottleUp. See *Controllers* below.
+- **Network play**: 1.4 has TCP/IP built in. IPX play works through [IPXWrapper](https://github.com/solemnwarning/ipxwrapper), a third-party download (see below).
 
 ## Requirements
 
@@ -39,9 +41,31 @@ Settings live in `usnf97fix.ini` in the game folder; every option is explained i
 
 Each start writes `usnf97fix.log`. It records which fixes were applied and any DirectDraw calls the shim doesn't support. Please attach it to bug reports.
 
-## Network play (IPX)
+## Controllers
 
-Windows 11 has no IPX. Download IPXWrapper and copy its `ipxwrapper.dll`, `wsock32.dll` and `mswsock.dll` into the game folder. Set `PauseInBackground=0` in the ini, because the original game ends a multiplayer session when its window loses focus.
+The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, one hat and four buttons. usnf97fix redirects those calls to a virtual joystick fed from DirectInput 8 controllers (HOTAS, flight controllers, pedals) and XInput pads.
+
+1. Start the game once and open `usnf97fix.log`. It lists every controller with its axes, buttons and hats, plus the mapping that `auto` chose.
+2. Adjust `[input]` in `usnf97fix.ini` if needed. For example:
+   ```ini
+   Roll=Echo:X
+   Pitch=Echo:Y
+   Throttle=Echo:S1~
+   Rudder=Echo:RZ
+   ```
+   To find what your controller calls each control, set `LogInput=1`, move every control, and read the log.
+3. In the game, open Flight › Control. For each part you mapped, choose Stick = Joystick (or a stick preset), Rudder = Rudder pedals, and Throttle = Throttle stick. Parts you didn't map stay on Keyboard.
+4. Bind anything else in `[keys]`, for example `Gear=Echo:B9`, `Flaps=Echo:B10`, or `Afterburner=Echo:S1<5`. All commands are listed in the ini.
+
+Xbox-style pads work automatically: left stick for pitch/roll, triggers for rudder, RB/LB for throttle up/down, d-pad as the hat, and A/B/X/Y as buttons 1–4.
+
+`JoystickPollMs` controls how often the game reads the joystick. The game's own interval is 50 ms; lower values reduce input lag.
+
+## Network play
+
+Version 1.4 includes TCP/IP play; use it first. Set `PauseInBackground=0` in the ini, because the original game ends a multiplayer session when its window loses focus.
+
+For IPX, which Windows 11 lacks, download IPXWrapper and copy its `ipxwrapper.dll`, `wsock32.dll` and `mswsock.dll` into the game folder.
 
 ## How the fixes work
 

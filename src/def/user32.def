@@ -28,3 +28,5 @@ LoadCursorA@8
 FillRect@12
 MessageBoxA@16
 wsprintfA
+GetForegroundWindow@0
+MapVirtualKeyA@8

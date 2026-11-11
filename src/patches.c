@@ -182,6 +182,54 @@ static void patch_timeupdate(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Fix 3: privileged instructions. The video player loop (MainLoop,    */
+/* run by PlayCobra for the intro and reference movies) still brackets */
+/* clock reads with CLI/STI from the DOS version. Windows 9x tolerated */
+/* that; NT-based Windows raises STATUS_PRIVILEGED_INSTRUCTION. Skip   */
+/* the one-byte CLI (FA) / STI (FB) when it faults inside USNF.EXE.    */
+/* ------------------------------------------------------------------ */
+static DWORD s_imageLo, s_imageHi;
+static volatile LONG s_cliSkipped;
+
+static LONG WINAPI priv_handler(EXCEPTION_POINTERS *ep)
+{
+    DWORD *eip;
+    BYTE op;
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_PRIV_INSTRUCTION) return EXCEPTION_CONTINUE_SEARCH;
+    eip = (DWORD *)(ep->ContextRecord + CONTEXT_EIP_OFFSET);
+    if (*eip < s_imageLo || *eip >= s_imageHi) return EXCEPTION_CONTINUE_SEARCH;
+    op = *(const BYTE *)*eip;
+    if (op != 0xFA && op != 0xFB) return EXCEPTION_CONTINUE_SEARCH;
+    if (s_cliSkipped++ == 0) logf("privileged %s at %08lX skipped (further ones are skipped silently)", op == 0xFA ? "CLI" : "STI", *eip);
+    *eip += 1;
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+/* ------------------------------------------------------------------ */
+/* Option: joystick read interval. ReadDevice() re-reads a joystick at  */
+/* most every 50 ms (gameport reads were expensive in 1996).            */
+/* ------------------------------------------------------------------ */
+static void patch_joy_interval(void)
+{
+    DWORD fn = sms_find(&s_sms, "?ReadDevice@@YA?AW4JOYRESULT@@K@Z");
+    int ms = (int)GetPrivateProfileIntA("input", "JoystickPollMs", 50, g_iniPath);
+    BYTE *p, v;
+    int i;
+    if (ms == 50) return;
+    if (ms < 1) ms = 1;
+    if (ms > 127) ms = 127;
+    if (!fn) { logf("joystick poll: ReadDevice not in symbol map"); return; }
+    p = (BYTE *)fn;
+    for (i = 0; i < 0x60; i++)                 /* sub eax,ecx / cmp eax,32h / jae */
+        if (p[i] == 0x2B && p[i + 1] == 0xC1 && p[i + 2] == 0x83 && p[i + 3] == 0xF8 && p[i + 4] == 0x32 && p[i + 5] == 0x73) {
+            v = (BYTE)ms;
+            if (write_code(p + i + 4, &v, 1)) logf("joystick poll: every %d ms (game default 50)", ms);
+            return;
+        }
+    logf("joystick poll: interval check not found in ReadDevice; not patched");
+}
+
+/* ------------------------------------------------------------------ */
 void patches_apply(void)
 {
     BYTE *nt;
@@ -194,10 +242,22 @@ void patches_apply(void)
     entry = (DWORD)s_base + rd32(nt + 0x28);
     logf("exe: base %08lX, entry %08lX, timestamp %08lX", (DWORD)s_base, entry, stamp);
 
+    s_imageLo = (DWORD)s_base;
+    s_imageHi = (DWORD)s_base + rd32(nt + 0x50);          /* SizeOfImage */
+    logf("CLI/STI handler: %s", AddVectoredExceptionHandler(1, priv_handler) ? "installed" : "FAILED");
+
     /* window / cursor hooks: independent of the game build */
     logf("hook CreateWindowExA: %s", iat_hook(exe, "USER32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA, NULL) ? "ok" : "FAILED");
     logf("hook GetCursorPos:   %s", iat_hook(exe, "USER32.dll", "GetCursorPos", (void *)hook_GetCursorPos, NULL) ? "ok" : "not imported");
     logf("hook ShowCursor:     %s", iat_hook(exe, "USER32.dll", "ShowCursor", (void *)hook_ShowCursor, NULL) ? "ok" : "not imported");
+
+    if (input_enabled()) {
+        int ok = iat_hook(exe, "WINMM.dll", "joyGetNumDevs", (void *)hook_joyGetNumDevs, NULL);
+        ok &= iat_hook(exe, "WINMM.dll", "joyGetDevCapsA", (void *)hook_joyGetDevCapsA, NULL);
+        ok &= iat_hook(exe, "WINMM.dll", "joyGetPos", (void *)hook_joyGetPos, NULL);
+        ok &= iat_hook(exe, "WINMM.dll", "joyGetPosEx", (void *)hook_joyGetPosEx, NULL);
+        logf("hook joystick (DirectInput/XInput): %s", ok ? "ok" : "FAILED (game uses Windows joysticks directly)");
+    } else logf("joystick: [input] Enable=0, the game reads Windows joysticks directly");
 
     if (!sms_load()) return;
     if (sms_find(&s_sms, "_WinMainCRTStartup") != entry) {
@@ -205,6 +265,7 @@ void patches_apply(void)
         return;
     }
     patch_cdpath();
+    patch_joy_interval();
     if (g_cfg.fixGameSpeed) patch_timeupdate();
     else logf("speed fix: disabled in ini");
 }

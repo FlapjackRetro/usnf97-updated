@@ -49,7 +49,8 @@ void  mem_free(void *p) { if (p) VirtualFree(p, 0, MEM_RELEASE); }
 /* ---------------- config ---------------- */
 Config g_cfg;
 char   g_gameDir[260];
-static char s_iniPath[280];
+char g_iniPath[280];
+#define s_iniPath g_iniPath
 
 void config_load(void)
 {

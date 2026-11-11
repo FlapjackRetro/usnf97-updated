@@ -33,3 +33,6 @@ GetPrivateProfileStringA@24
 GetTickCount@0
 DisableThreadLibraryCalls@4
 OutputDebugStringA@4
+AddVectoredExceptionHandler@8
+GetPrivateProfileSectionA@16
+InterlockedCompareExchange@12

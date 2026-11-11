@@ -129,6 +129,7 @@ typedef struct { HDC hdc; BOOL fErase; RECT rcPaint; BOOL fRestore; BOOL fIncUpd
 #define WM_WINDOWPOSCHANGED 0x0047
 #define WM_NCHITTEST    0x0084
 #define WM_KEYDOWN      0x0100
+#define WM_KEYUP        0x0101
 #define WM_SYSKEYDOWN   0x0104
 #define WM_SYSKEYUP     0x0105
 #define WM_SYSCHAR      0x0106
@@ -173,9 +174,20 @@ IMPORT DWORD  WINAPI GetFileAttributesA(const char *);
 IMPORT DWORD  WINAPI GetShortPathNameA(const char *, char *, DWORD);
 IMPORT UINT   WINAPI GetPrivateProfileIntA(const char *, const char *, int, const char *);
 IMPORT DWORD  WINAPI GetPrivateProfileStringA(const char *, const char *, const char *, char *, DWORD, const char *);
+IMPORT DWORD  WINAPI GetPrivateProfileSectionA(const char *, char *, DWORD, const char *);
+IMPORT LONG   WINAPI InterlockedCompareExchange(LONG volatile *, LONG, LONG);
 IMPORT DWORD  WINAPI GetTickCount(void);
 IMPORT BOOL   WINAPI DisableThreadLibraryCalls(HMODULE);
 IMPORT void   WINAPI OutputDebugStringA(const char *);
+typedef struct { DWORD ExceptionCode; DWORD ExceptionFlags; void *ExceptionRecord; void *ExceptionAddress;
+                 DWORD NumberParameters; UINT_PTR ExceptionInformation[15]; } EXCEPTION_RECORD;
+typedef struct { EXCEPTION_RECORD *ExceptionRecord; BYTE *ContextRecord; } EXCEPTION_POINTERS;
+#define CONTEXT_EIP_OFFSET 0xB8                 /* x86 CONTEXT.Eip */
+#define EXCEPTION_PRIV_INSTRUCTION 0xC0000096ul
+#define EXCEPTION_CONTINUE_EXECUTION (-1)
+#define EXCEPTION_CONTINUE_SEARCH 0
+typedef LONG (WINAPI *PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS *);
+IMPORT void * WINAPI AddVectoredExceptionHandler(ULONG, PVECTORED_EXCEPTION_HANDLER);
 
 /* ---- user32 ---- */
 IMPORT LONG    WINAPI SetWindowLongA(HWND, int, LONG);
@@ -205,6 +217,8 @@ IMPORT HCURSOR WINAPI SetCursor(HCURSOR);
 IMPORT HCURSOR WINAPI LoadCursorA(HINSTANCE, const char *);
 IMPORT int     WINAPI FillRect(HDC, const RECT *, HBRUSH);
 IMPORT int     WINAPI MessageBoxA(HWND, const char *, const char *, UINT);
+IMPORT HWND    WINAPI GetForegroundWindow(void);
+IMPORT UINT    WINAPI MapVirtualKeyA(UINT, UINT);
 IMPORT int     __cdecl wsprintfA(char *, const char *, ...);
 #define IDC_ARROW ((const char *)32512)
 

@@ -27,6 +27,7 @@ static LONGLONG  s_vblankBase;
 static LRESULT CALLBACK subclass_proc(HWND, UINT, WPARAM, LPARAM);
 
 DDSurface *present_primary(void) { return s_primary; }
+HWND present_hwnd(void) { return s_hwnd; }
 int present_is_primary_mem(const DDSurface *s) { return s && s == s_primary; }
 
 /* -------- geometry -------- */
