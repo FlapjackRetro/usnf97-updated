@@ -17,6 +17,7 @@ typedef struct {
     int  fixGameSpeed;      /* 1 = wait for real time instead of clamping the timestep */
     int  minFrameTicks;     /* game timestep floor in 1/256 s (game hard-codes 5) */
     int  pauseInBackground; /* 1 = vanilla: game pauses when it loses focus */
+    int  confineMouse;      /* 1 = keep the pointer in the game picture while it is active */
     int  log;               /* 1 = write usnf97fix.log */
     char cdPath[260];       /* "" = auto (game folder if USNF_10.LIB is there, else scan CDs) */
 } Config;
@@ -28,6 +29,8 @@ extern char   g_iniPath[280];   /* usnf97fix.ini */
 void config_load(void);
 void log_open(void);
 void logf(const char *fmt, ...);
+void log_raw(const char *s);
+void crash_logger_install(HINSTANCE dll);
 
 /* ---------- tiny CRT ---------- */
 void *memset(void *d, int c, unsigned int n);
@@ -129,6 +132,7 @@ UINT WINAPI hook_joyGetPosEx(UINT id, void *ji);
 HWND WINAPI hook_CreateWindowExA(DWORD, const char *, const char *, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, void *);
 BOOL WINAPI hook_GetCursorPos(POINT *);
 int  WINAPI hook_ShowCursor(BOOL);
+BOOL WINAPI hook_ClipCursor(const RECT *);
 
 /* ---------- exe patching ---------- */
 void patches_apply(void);                          /* DllMain: CD path, IAT hooks, speed fix */

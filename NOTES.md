@@ -77,3 +77,10 @@ See `analysis/usnf_1.0_symbols.txt`.
 - Throttle (`PotThrottle`) = −normalized Z, so minimum Z = full power. `InputCalibrate` stores the afterburner detent.
 - Keyboard: `KEYEvent` uses the **scancode** from lParam (bits 16–22) and tracks Shift (2A/36), Ctrl (1D) and Alt (38) itself. Held keys go to `_keyarray[scancode]`: arrows = stick, End/PgDn = rudder, Space = weapon, Tab = gun. Throttle keys: 1 idle, 2/3/4 = 25/50/75 %, 5 full, 6 afterburner, 7 −5 %, 8 +5 %.
 - Flight menu accelerators (FMENUD.MNU): F1–F10 and F12 views, Shift+1–9 windows, Ctrl+P pause, Shift+C slow motion, Ctrl+T target info, Alt+S radio silence, Ctrl+Q end mission, Backspace cockpit. Single-key commands (FlightKey): a autopilot, b brakes, d damage, f flaps, g gear, h hook, j jammer, t target, [ ] weapon select, E eject, Insert chaff, Delete flare.
+
+## Cockpit art (canopy frames)
+- `.HUD` files (in usnf_2.lib) are small PE images. Their struct at file+0x200 is copied to `_hud`. `+1` holds the low-res canopy name (`~f14`), `+0xE` the high-res one (`~f14h`), `+0x28` the low-res hotspot (F14: 349,114) and `+0x2C` the 640×480 hotspot (F14: 640,240).
+- Canopy PICs are type 1 (span lists, see `tools/pic2png.py`). `~F14H` is **1280×490**, twice the width of the 640×480 view.
+- `HUDDraw` blits the canopy at 1:1 (no scaling) with its hotspot on the HUD centre, which is the projected boresight. The HUD centre shifts with G-load (head bob), so the art has margin beyond the screen edges.
+- `HUDInit`: 640×480 loads `~xxxh` with the 640 hotspot. Any other mode loads `~xxx`, and if the width isn't 320 it **frees it again**: 800×600, 1024×768 and 1600×1200 draw no canopy frame at all.
+- At 640×480 the visible canopy columns are 320–959. A 16:9 view at 480 lines (854 wide) would show columns 213–1066, all inside the art.

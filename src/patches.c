@@ -250,6 +250,7 @@ void patches_apply(void)
     logf("hook CreateWindowExA: %s", iat_hook(exe, "USER32.dll", "CreateWindowExA", (void *)hook_CreateWindowExA, NULL) ? "ok" : "FAILED");
     logf("hook GetCursorPos:   %s", iat_hook(exe, "USER32.dll", "GetCursorPos", (void *)hook_GetCursorPos, NULL) ? "ok" : "not imported");
     logf("hook ShowCursor:     %s", iat_hook(exe, "USER32.dll", "ShowCursor", (void *)hook_ShowCursor, NULL) ? "ok" : "not imported");
+    logf("hook ClipCursor:     %s", iat_hook(exe, "USER32.dll", "ClipCursor", (void *)hook_ClipCursor, NULL) ? "ok" : "not imported (1.0)");
 
     if (input_enabled()) {
         int ok = iat_hook(exe, "WINMM.dll", "joyGetNumDevs", (void *)hook_joyGetNumDevs, NULL);

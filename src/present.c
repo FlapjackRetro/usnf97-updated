@@ -19,6 +19,7 @@ static int       s_borderless;
 static RECT      s_savedWindowRect;
 static int       s_haveSavedRect;
 static int       s_cursorCount;        /* ShowCursor counter as the game sees it */
+static volatile int s_wantClip;         /* the game asked to confine the pointer */
 static BYTE     *s_stage;
 static unsigned  s_stageSize;
 static BITMAPINFO256 s_bmi;
@@ -63,6 +64,41 @@ static void client_to_game(int x, int y, int *gx, int *gy)
     if (*gy < 0) *gy = 0;
     if (*gx >= s_modeW) *gx = s_modeW - 1;
     if (*gy >= s_modeH) *gy = s_modeH - 1;
+}
+
+/* -------- pointer confinement --------
+ * USNF 1.4 calls ClipCursor({0,0,w,h}) assuming a fullscreen w x h display. In a
+ * window that pins the pointer to the top-left of the desktop, so we confine it to
+ * the game picture instead, and only while the game window is the active one. */
+static volatile int s_clipped;           /* we currently hold a cursor clip */
+
+/* Confine the pointer to the picture while the game is foreground and wants it;
+ * release only clips we made. Safe from any thread (also run by the presenter as a
+ * watchdog, so a busy or suspended game thread can't leave the pointer trapped). */
+static void apply_clip(void)
+{
+    RECT c, d, cur;
+    POINT tl, br;
+    HWND h = s_hwnd;
+    if (!h || !s_wantClip || !g_cfg.confineMouse || GetForegroundWindow() != h || IsIconic(h)) {
+        if (s_clipped) { ClipCursor(NULL); s_clipped = 0; }
+        return;
+    }
+    if (!GetClientRect(h, &c)) return;
+    calc_dest(c.right, c.bottom, &d);
+    tl.x = d.left; tl.y = d.top; br.x = d.right; br.y = d.bottom;
+    ClientToScreen(h, &tl); ClientToScreen(h, &br);
+    d.left = tl.x; d.top = tl.y; d.right = br.x; d.bottom = br.y;
+    if (s_clipped && GetClipCursor(&cur) && !memcmp(&cur, &d, sizeof d)) return;
+    ClipCursor(&d);
+    s_clipped = 1;
+}
+
+BOOL WINAPI hook_ClipCursor(const RECT *r)
+{
+    s_wantClip = r != NULL;
+    apply_clip();
+    return TRUE;
 }
 
 /* -------- window layout (UI thread only) -------- */
@@ -113,6 +149,7 @@ static void apply_layout(HWND hwnd)
     }
     s_force = 1;
     if (s_event) SetEvent(s_event);
+    apply_clip();
 }
 
 static void toggle_borderless(HWND hwnd)
@@ -194,16 +231,24 @@ static LRESULT CALLBACK subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_EXITSIZEMOVE:
         s_force = 1;
         if (s_event) SetEvent(s_event);
+        apply_clip();
+        break;
+    case WM_WINDOWPOSCHANGED:
+        apply_clip();
         break;
     case WM_SETCURSOR:
-        if (LOWORD(lp) == HTCLIENT) {
-            SetCursor(s_cursorCount < 0 ? NULL : LoadCursorA(NULL, IDC_ARROW));
-            return TRUE;
-        }
+        if (LOWORD(lp) == HTCLIENT) break;                 /* the game hides it and draws its own pointer */
         return DefWindowProcA(hwnd, msg, wp, lp);
     case WM_ACTIVATEAPP:
-        if (!wp && !g_cfg.pauseInBackground) return 0;   /* keep running when unfocused */
-        break;
+        if (!wp) {
+            if (s_clipped) { ClipCursor(NULL); s_clipped = 0; }   /* never keep the pointer when switching away */
+            if (!g_cfg.pauseInBackground) return 0;        /* keep running when unfocused */
+            break;
+        } else {
+            LRESULT r = CallWindowProcA(s_origProc, hwnd, msg, wp, lp);
+            apply_clip();
+            return r;
+        }
     case WM_SYSKEYDOWN:
         if (wp == VK_RETURN && (lp & (1 << 29))) { toggle_borderless(hwnd); return 0; }
         break;
@@ -288,8 +333,9 @@ static DWORD WINAPI present_thread(void *arg)
 {
     (void)arg;
     for (;;) {
-        DWORD r = WaitForSingleObject(s_event, s_dirty ? 12 : 250);
+        DWORD r = WaitForSingleObject(s_event, s_dirty ? 12 : 50);
         int force = s_force;
+        apply_clip();                                      /* watchdog: release the pointer on Alt+Tab */
         if (r == WAIT_TIMEOUT && !s_dirty && !force) continue;
         s_dirty = 0;
         s_force = 0;

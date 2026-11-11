@@ -31,3 +31,6 @@ wsprintfA
 GetForegroundWindow@0
 MapVirtualKeyA@8
 wvsprintfA@12
+ClientToScreen@8
+ClipCursor@4
+GetClipCursor@4

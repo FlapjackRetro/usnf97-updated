@@ -35,8 +35,12 @@ BOOL WINAPI DllMainCRTStartup(HINSTANCE inst, DWORD reason, void *reserved)
         InitializeCriticalSection(&g_ddLock);
         config_load();
         log_open();
+        crash_logger_install(inst);
+        log_raw("[start] log open");
         time_init();
+        log_raw("[start] timer ok");
         input_configure();
+        log_raw("[start] input config ok");
         GetModuleFileNameA(NULL, exe, sizeof exe);
         logf("usnf97fix %s loaded into %s", SHIM_VERSION, exe);
         logf("config: WindowMode=%d WindowScale=%d Filter=%d AspectCorrect=%d Stretch=%d VSync=%d FrameCap=%d",
@@ -44,6 +48,7 @@ BOOL WINAPI DllMainCRTStartup(HINSTANCE inst, DWORD reason, void *reserved)
         logf("config: FixGameSpeed=%d MinFrameTicks=%d PauseInBackground=%d CDPath='%s'",
              g_cfg.fixGameSpeed, g_cfg.minFrameTicks, g_cfg.pauseInBackground, g_cfg.cdPath);
         patches_apply();
+        log_raw("[start] DllMain done");
     }
     return TRUE;
 }

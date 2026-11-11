@@ -75,6 +75,7 @@ void config_load(void)
     g_cfg.fixGameSpeed      = GetPrivateProfileIntA(S, "FixGameSpeed", 1, s_iniPath);
     g_cfg.minFrameTicks     = GetPrivateProfileIntA(S, "MinFrameTicks", 5, s_iniPath);
     g_cfg.pauseInBackground = GetPrivateProfileIntA(S, "PauseInBackground", 1, s_iniPath);
+    g_cfg.confineMouse      = GetPrivateProfileIntA(S, "ConfineMouse", 1, s_iniPath);
     g_cfg.log               = GetPrivateProfileIntA(S, "Log", 1, s_iniPath);
     GetPrivateProfileStringA(S, "CDPath", "", g_cfg.cdPath, sizeof g_cfg.cdPath, s_iniPath);
 
@@ -114,6 +115,48 @@ void logf(const char *fmt, ...)
     EnterCriticalSection(&s_logLock);
     WriteFile(s_log, buf, n, &w, NULL);
     LeaveCriticalSection(&s_logLock);
+}
+
+/* ---------------- crash diagnostics ----------------
+ * Raw writer (no wvsprintfA) + a vectored handler that records the first error-class
+ * exceptions with their address, relative to this DLL or USNF.EXE. */
+static DWORD s_dllLo, s_dllHi, s_exeLo, s_exeHi;
+static volatile LONG s_crashLogged;
+
+static void hex8(char *o, DWORD v) { int i; for (i = 7; i >= 0; i--) { o[i] = "0123456789ABCDEF"[v & 15]; v >>= 4; } }
+
+void log_raw(const char *s)
+{
+    DWORD w;
+    if (s_log == INVALID_HANDLE_VALUE) return;
+    WriteFile(s_log, s, str_len(s), &w, NULL);
+    WriteFile(s_log, "\r\n", 2, &w, NULL);
+}
+
+static LONG WINAPI crash_logger(EXCEPTION_POINTERS *ep)
+{
+    char line[96];
+    DWORD code = ep->ExceptionRecord->ExceptionCode, at = (DWORD)ep->ExceptionRecord->ExceptionAddress;
+    if (code < 0xC0000000u || s_crashLogged >= 16) return EXCEPTION_CONTINUE_SEARCH;
+    s_crashLogged++;
+    str_cpy(line, "exception XXXXXXXX at XXXXXXXX", sizeof line);
+    hex8(line + 10, code); hex8(line + 22, at);
+    {
+        DWORD base = 0;
+        if (at >= s_dllLo && at < s_dllHi) { str_cat(line, " = ddraw.dll+", sizeof line); base = s_dllLo; }
+        else if (at >= s_exeLo && at < s_exeHi) { str_cat(line, " = usnf.exe+", sizeof line); base = s_exeLo; }
+        if (base) { unsigned int n = str_len(line); hex8(line + n, at - base); line[n + 8] = 0; }
+    }
+    log_raw(line);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void crash_logger_install(HINSTANCE dll)
+{
+    BYTE *b = (BYTE *)dll, *e = (BYTE *)GetModuleHandleA(NULL);
+    s_dllLo = (DWORD)b; s_dllHi = s_dllLo + *(DWORD *)(b + *(DWORD *)(b + 0x3c) + 0x50);
+    s_exeLo = (DWORD)e; s_exeHi = s_exeLo + *(DWORD *)(e + *(DWORD *)(e + 0x3c) + 0x50);
+    AddVectoredExceptionHandler(0, crash_logger);   /* last in the chain: only observes */
 }
 
 /* ---------------- timing ---------------- */
