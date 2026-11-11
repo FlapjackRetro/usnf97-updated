@@ -181,6 +181,21 @@ static void __cdecl tick_wait(void)
         short c = *(volatile short *)s_tp.compressAddr;   /* time compression: <0 = slow motion */
         if (c < 0 && c > -6) minTicks <<= -c;
     }
+    {   /* frame-rate report every 10 s while frames are running */
+        static DWORD t0, tPrev, worst, n;
+        DWORD t = GetTickCount();
+        if (tPrev && t - tPrev > 1000) { t0 = 0; }              /* paused or in a menu: start over */
+        if (!t0) { t0 = t; worst = 0; n = 0; }
+        else {
+            if (t - tPrev > worst) worst = t - tPrev;
+            n++;
+            if (t - t0 >= 10000) {
+                logf("frame rate: %lu fps average, slowest frame %lu ms", n * 1000 / (t - t0), worst);
+                t0 = t; worst = 0; n = 0;
+            }
+        }
+        tPrev = t;
+    }
     for (;;) {
         LONG diff;
         s_readClock();
@@ -262,7 +277,7 @@ static LONG WINAPI priv_handler(EXCEPTION_POINTERS *ep)
 static void patch_joy_interval(void)
 {
     DWORD fn = sms_find(&s_sms, "?ReadDevice@@YA?AW4JOYRESULT@@K@Z");
-    int ms = (int)GetPrivateProfileIntA("input", "JoystickPollMs", 50, g_iniPath);
+    int ms = (int)GetPrivateProfileIntA("input", "JoystickPollMs", 10, g_iniPath);
     BYTE *p, v;
     int i;
     if (ms == 50) return;
