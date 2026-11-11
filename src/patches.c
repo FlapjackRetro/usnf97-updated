@@ -94,6 +94,28 @@ const char *patches_symbol_at(DWORD addr, DWORD *base)
 }
 
 /* ------------------------------------------------------------------ */
+/* Option: always full model detail. Models switch to simpler geometry */
+/* with the jumpfar4 opcode: projected size (size*scrh/depth) below    */
+/* threshold*_sizeAdjust jumps to the low-detail part. Making that jb  */
+/* a pair of NOPs leaves the jump offset at 0, so models always draw   */
+/* their full-detail geometry, at any distance.                        */
+/* ------------------------------------------------------------------ */
+static void patch_force_detail(void)
+{
+    static const BYTE pat[] = { 0x0F, 0xBF, 0xC0, 0x72, 0x02, 0x2B, 0xC0, 0x03, 0xF0 };
+    static const BYTE nops[2] = { 0x90, 0x90 };
+    DWORD fn, n, a, hit = 0;
+    if (!GetPrivateProfileIntA("usnf97fix", "ForceHighDetail", 0, g_iniPath)) return;
+    fn = sms_find(&s_sms, "do_jumpfar4");
+    n = fn ? sms_size(&s_sms, fn) : 0;
+    if (!fn || !n || n > 0x400) { logf("high detail: do_jumpfar4 not in symbol map"); return; }
+    for (a = fn; a + sizeof pat <= fn + n; a++)
+        if (!memcmp((const void *)a, pat, sizeof pat)) { if (hit) { hit = 0; break; } hit = a; }
+    if (!hit) { logf("high detail: do_jumpfar4 not as expected; not patched"); return; }
+    logf("high detail: models always use full detail (%s)", write_code((void *)(hit + 3), nops, 2) ? "ok" : "VirtualProtect failed");
+}
+
+/* ------------------------------------------------------------------ */
 /* Fix 1: CD path. _cdpath() only scans CD drives when CDPATH is empty. */
 /* ------------------------------------------------------------------ */
 static void patch_cdpath(void)
@@ -297,5 +319,7 @@ void patches_apply(void)
     patch_joy_interval();
     if (g_cfg.fixGameSpeed) patch_timeupdate();
     else logf("speed fix: disabled in ini");
+    patch_force_detail();
     widescreen_apply();
+    hires_apply();
 }

@@ -22,6 +22,12 @@
  *     ECX's low word is otherwise unused there (the colour steps are masked to the
  *     high word), so this is safe.
  *
+ *  7. The three affine texture span loops (AC_interpolate_linear_span, ils_w256_unroll,
+ *     ils_w256_unroll_nc) have the same 8-bit group counter (mov cl,al ... dec cl). The
+ *     texture accumulators use only ECX's high word (ECX = x<<16, steps <<16), so the
+ *     count setup becomes a call to "shr eax,2; mov cx,ax; sub edi,4" and the loop
+ *     uses dec cx. Affects close-up textured polygons wider than 1023 pixels.
+ *
  * Everything else (3D clip box, HUD centre, dialogs, cockpit panels, mouse limits)
  * already follows the screen size. */
 #include "shim.h"
@@ -110,6 +116,7 @@ void widescreen_apply(void)
 
     /* ---- locate and verify every site before changing anything ---- */
     DWORD um[3], getJa, initSite, initJe, initDef, initCont, hud[4], rSite1, rSite2, gmHi, spanSite;
+    DWORD linStart[3], linDec[3];
     {
         /* 1. usnfmain: mov eax,[fm]; mov ecx,[shell]; cmp ecx,eax  (enter + leave) */
         static const unsigned short p1[] = { 0xA1,0xFFFF,0xFFFF,0xFFFF,0xFFFF, 0x8B,0x0D,0xFFFF,0xFFFF,0xFFFF,0xFFFF, 0x3B,0xC8 };
@@ -187,6 +194,23 @@ void widescreen_apply(void)
         spanSite += 3;
     }
 
+    {
+        /* 7. affine texture spans: shr eax,2; mov cl,al; sub edi,4 ... rol eax,10h; dec cl; mov [edi],eax; jne */
+        static const unsigned short p[] = { 0xC1,0xE8,0x02, 0x8A,0xC8, 0x83,0xEF,0x04 };
+        static const unsigned short q[] = { 0xC1,0xC0,0x10, 0xFE,0xC9, 0x89,0x07, 0x75 };
+        DWORD l2 = patches_symbol("AC_interpolate_linear_span"), h2 = patches_symbol("interpolate_perspective_span"), c;
+        int i;
+        if (!l2 || !h2 || h2 <= l2 || h2 - l2 > 0x4000) { logf("wide flight: texture span loops not found; off"); return; }
+        for (c = l2, i = 0; i < 3; i++) {
+            if (!(linStart[i] = find(c, h2, p, 8)) || !(linDec[i] = find(linStart[i], h2, q, 8)) || linDec[i] - linStart[i] > 0x80) {
+                logf("wide flight: texture span loop %d not as expected; off", i); return;
+            }
+            linDec[i] += 3;
+            c = linDec[i];
+        }
+        if (find(c, h2, p, 8)) { logf("wide flight: more texture span loops than expected; off"); return; }
+    }
+
     /* ---- build stubs ---- */
     wsprintfA(s_modeName, "%dx480x256", W);
 
@@ -259,7 +283,14 @@ void widescreen_apply(void)
         s[k++] = 0x66; s[k++] = 0x8B; s[k++] = 0x0D; put32(s + k, ax); k += 4;     /* mov cx,[aspectx] */
         s[k++] = 0x5A; s[k++] = 0x58; s[k++] = 0xC3;                               /* pop edx; pop eax; ret */
     }
-    if (!stubMode || !stubGet || !stubInit || !stubProjW || !stubAx) { logf("wide flight: stub buffer too small; off"); return; }
+    BYTE *stubLin = s = code_alloc(3 + 3 + 3 + 1);
+    if (s) {
+        s[0] = 0xC1; s[1] = 0xE8; s[2] = 0x02;          /* shr eax,2 */
+        s[3] = 0x66; s[4] = 0x8B; s[5] = 0xC8;          /* mov cx,ax */
+        s[6] = 0x83; s[7] = 0xEF; s[8] = 0x04;          /* sub edi,4 */
+        s[9] = 0xC3;
+    }
+    if (!stubLin || !stubMode || !stubGet || !stubInit || !stubProjW || !stubAx) { logf("wide flight: stub buffer too small; off"); return; }
     FlushInstructionCache(GetCurrentProcess(), s_code, sizeof s_code);
 
     /* ---- apply ---- */
@@ -290,10 +321,17 @@ void widescreen_apply(void)
         static const BYTE decCx[2] = { 0x66, 0x49 };   /* dec cx */
         n += write_code((void *)spanSite, decCx, 2);
     }
+    for (a = 0; a < 3; a++) {
+        static const BYTE decCx[2] = { 0x66, 0x49 };
+        BYTE b[8];
+        b[0] = 0xE8; put32(b + 1, (DWORD)stubLin - (linStart[a] + 5)); b[5] = b[6] = b[7] = 0x90;
+        n += write_code((void *)linStart[a], b, 8);
+        n += write_code((void *)linDec[a], decCx, 2);
+    }
     n += call7(rSite1, stubProjW);
     n += call7(rSite2, stubAx);
     (void)gmHi;
-    logf("wide flight: %d x 480 for flight at the 640x480 setting (%d/12 patches; usnfmain %08lX/%08lX/%08lX, "
+    logf("wide flight: %d x 480 for flight at the 640x480 setting (%d/18 patches; usnfmain %08lX/%08lX/%08lX, "
          "GetMode %08lX, InitMode %08lX, HUDInit %08lX, render_3d %08lX/%08lX, spans %08lX)",
          W, n, um[0], um[1], um[2], getJa, initSite, hud[0], rSite1, rSite2, spanSite);
 }

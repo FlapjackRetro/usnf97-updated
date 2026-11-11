@@ -44,3 +44,4 @@ GetThreadContext@8
 GetThreadId@4
 ReadProcessMemory@20
 GetModuleHandleExA@12
+GetEnvironmentVariableA@12

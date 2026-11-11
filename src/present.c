@@ -308,6 +308,17 @@ static LRESULT CALLBACK subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return CallWindowProcA(s_origProc, hwnd, msg, wp, lp);
 }
 
+/* -------- high-res composite (hires.c) -------- */
+static const BYTE *s_hiBuf;
+static int s_hiW, s_hiH, s_hiLoW, s_hiLoH;
+
+void present_set_hires(const BYTE *buf, int w, int h, int loW, int loH)
+{
+    LOCK_DD();
+    s_hiBuf = buf; s_hiW = w; s_hiH = h; s_hiLoW = loW; s_hiLoH = loH;
+    UNLOCK_DD();
+}
+
 /* -------- presenter thread -------- */
 static void fill_bars(HDC dc, int cw, int ch, const RECT *d)
 {
@@ -429,13 +440,18 @@ static void present_once(int force)
     LOCK_DD();
     if (!s_primary) { UNLOCK_DD(); return; }
     w = s_primary->w; h = s_primary->h; pitch = s_primary->pitch;
-    if ((unsigned)(pitch * h) > s_stageSize) {
-        mem_free(s_stage);
-        s_stageSize = (unsigned)(pitch * h);
-        s_stage = mem_alloc(s_stageSize);
-        if (!s_stage) { s_stageSize = 0; UNLOCK_DD(); return; }
+    {
+        /* a high-res composite for this frame size replaces the primary (hires.c) */
+        const BYTE *src = s_primary->mem;
+        if (s_hiBuf && s_hiLoW == w && s_hiLoH == h) { src = s_hiBuf; w = s_hiW; h = s_hiH; pitch = s_hiW; }
+        if ((unsigned)(pitch * h) > s_stageSize) {
+            mem_free(s_stage);
+            s_stageSize = (unsigned)(pitch * h);
+            s_stage = mem_alloc(s_stageSize);
+            if (!s_stage) { s_stageSize = 0; UNLOCK_DD(); return; }
+        }
+        memcpy(s_stage, src, (unsigned)(pitch * h));
     }
-    memcpy(s_stage, s_primary->mem, (unsigned)(pitch * h));
     if (s_primary->pal) {
         for (i = 0; i < 256; i++) {
             s_bmi.bmiColors[i].rgbRed   = s_primary->pal->entries[i].peRed;

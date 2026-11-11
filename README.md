@@ -43,6 +43,10 @@ Settings live in `usnf97fix.ini` in the game folder; every option is explained i
 
 Each start writes `usnf97fix.log`. It records which fixes were applied and any DirectDraw calls the shim doesn't support. Please attach it to bug reports.
 
+## Wide flight view
+
+Set `WideFlight=1` in `usnf97fix.ini` and choose 640×480 under Pref → Screen resolution. Flight then runs at a 480-line resolution as wide as your screen's aspect ratio (1704×480 on 32:9, 1144×480 on 21:9). You get the same vertical view as 640×480 plus more to the sides, with the original high-res cockpit art. Menus stay 640×480; the bars beside them are filled per `SideFill`. Use Alt+Enter for borderless fullscreen.
+
 ## Controllers
 
 The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, one hat and four buttons. usnf97fix redirects those calls to a virtual joystick fed from DirectInput 8 controllers (HOTAS, flight controllers, pedals) and XInput pads.

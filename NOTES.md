@@ -96,9 +96,19 @@ Diagnosis notes: message tracing showed the subclassed window got Alt but never 
 
 ## To do
 
-- **32:9 flight view (next).** Add a 1706×480 mode (3× = 5118×1440). Scale the projection/FOV with width so the extra width shows more scenery instead of stretching it. Patch the HUDInit cockpit load so 1706×480 takes the 640×480 art path (1280×490 high-res art, 1:1). Audit hard-coded 640/320 widths and ≤1600 buffers. Check where the pause menu and dialogs land. The game's resolution menu only offers 320/640/800/1024, so the wide mode probably needs an ini switch.
+- **32:9 flight view: done** (`WideFlight=1`, see "Wide flight view" below). Not yet checked: other aircraft cockpits, external/padlock views, MFD view windows, multiplayer.
 - **Higher internal resolution for the 3D view.** Decision: the cockpit art and the 2D HUD/GUI stay as they are (original 480-line art, scaled up as now); only the 3D scene renders at a higher internal resolution (e.g. 2×/3× of 1706×480). Open questions:
   - Can the 3D pass and the 2D overlays be separated (render 3D large, then composite the original cockpit/HUD scaled)?
   - How does the software rasterizer size its buffers and projection, and what hard limits does it have (1600-wide buffers)?
   - How does the 8-bit software renderer perform at high resolution?
 - **Echo preset:** needs a log with the controller connected and `LogInput=1`.
+
+## Wide flight view (src/widescreen.c)
+
+The 3D viewport, HUD centre (the boresight projected through the 3D engine), dialogs (`_TopCenterDialog`), cockpit panels (`CPInit`, right/bottom anchored) and mouse limits all follow the screen size already. What had to change:
+
+- **Mode.** Flight and menus share mode 2 (640×480), and then `usnfmain` never switches modes. The flight mode (`0x52eb88` in 1.4) is read three times in `usnfmain`; a stub returns new mode 0x20 instead of 2. `GG_GetMode` fills `_grMode` for 0x20 (W×480, aspect 0x7fff), and `GG_InitMode` calls `SetDisplayMode(W,480,8)`.
+- **Width multiple of 8.** The game copies frames assuming row length == width. Our surfaces pad rows to 4 bytes, so 1706 gave sheared 2D layers. W = 1704 on 32:9.
+- **Projection.** `render_3d` normalizes to the larger screen axis (aspect values `_aspectx/y/z` scale the view matrix; `sx = x·ax·scrw/(z·az)`), so a wider screen zoomed in (vert-). Patched to compute the aspect values with min(scrw, scrh·4/3), then scale `_aspectx` by that / scrw. Result: hor+, with the culling FOV (`field_of_view`) and the horizon corners (`_SolidHorizon`) consistent.
+- **Cockpit.** `HUDInit` uses the high-res art, hotspot and positions only for exactly 640×480; its four 640 constants become W.
+- **Haze spans.** `G_SUPolygon` (Gouraud, used for the horizon haze) counted 4-pixel groups in CL, so spans over 1023 px wrapped (1704 drew as 680). Now `dec cx`; ECX's low word is otherwise unused there. The textured span routines also count in CL but use ECX's high bits for texture coordinates; their spans are short perspective segments, so they are unaffected.
