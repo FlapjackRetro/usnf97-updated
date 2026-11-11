@@ -73,7 +73,8 @@ int insrc_parse(const char *s, InSrc *o)
     scpy(ctl, p, n, sizeof ctl);
     n = slen(ctl);
     if (!n) return 0;
-    /* suffixes: threshold ">80" / "<20", invert "~" */
+    /* suffixes: tap "!" (last), threshold ">80" / "<20", invert "~" */
+    if (ctl[n - 1] == '!') { o->tap = 1; ctl[--n] = 0; if (!n) return 0; }
     for (i = 0; i < n; i++) {
         if (ctl[i] == '>' || ctl[i] == '<') {
             int v;

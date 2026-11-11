@@ -35,12 +35,13 @@ typedef struct {
     int  threshPct;              /* for > / < */
     int  wantGT;                 /* 1 = '>', 0 = '<' (when threshPct set) */
     int  hasThresh;
+    int  tap;                    /* '!' suffix: one key tap each time the source becomes active */
     int  dev, idx, idx2, dir;    /* resolved: device index, control index, POV direction 0..3 (U R D L) */
 } InSrc;
 
 typedef struct { unsigned char scan; unsigned char mods; } KeySpec;   /* mods: 1 shift, 2 ctrl, 4 alt */
 
-/* "Echo:X~", "pad:RT-LT", "#2:B5", "Echo:POV1U", "Echo:S1>80". 0 on syntax error. */
+/* "Echo:X~", "pad:RT-LT", "#2:B5", "Echo:POV1U", "Echo:S1>80", "Echo:B13!" (tap). 0 on syntax error. */
 int  insrc_parse(const char *s, InSrc *out);
 /* Bind a parsed source to the current device list. 0 if the device or control is not present. */
 int  insrc_resolve(InSrc *s, const InDevInfo *devs, int n);

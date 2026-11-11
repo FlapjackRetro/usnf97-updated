@@ -120,7 +120,7 @@ static const char *const k_roleKey[R_COUNT] = { "Roll", "Pitch", "Throttle", "Ru
 #define MAX_SRC 4
 
 typedef struct { InSrc src[MAX_SRC]; int n; int mapped; } Role;
-typedef struct { char name[48]; KeySpec key; InSrc src[MAX_SRC]; int n; int held; DWORD nextRepeat; } KeyBind;
+typedef struct { char name[48]; KeySpec key; InSrc src[MAX_SRC]; int n; int held; DWORD nextRepeat; unsigned char prev[MAX_SRC]; unsigned char primed; } KeyBind;
 #define MAX_KEYBINDS 96
 
 typedef struct { int x, y, z, r; unsigned int pov; DWORD buttons; } Virtual;
@@ -630,9 +630,21 @@ static void update_keys(DWORD now)
     focused = h && (s_keysUnfocused || GetForegroundWindow() == h);
     for (i = 0; i < s_nkeys; i++) {
         KeyBind *kb = &s_keys[i];
-        int on = 0;
-        for (j = 0; j < kb->n && !on; j++) on = insrc_pressed(&kb->src[j], state_of(&kb->src[j]));
+        int on = 0, tap = 0;
+        for (j = 0; j < kb->n; j++) {
+            int p = insrc_pressed(&kb->src[j], state_of(&kb->src[j])) ? 1 : 0;
+            if (kb->src[j].tap) {
+                /* lever positions etc.: tap on each activation; the first poll only primes */
+                if (kb->primed && p && !kb->prev[j] && focused) tap = 1;
+                kb->prev[j] = (unsigned char)p;
+            } else if (p) on = 1;
+        }
+        kb->primed = 1;
         if (!focused) on = 0;
+        if (tap && !kb->held) {
+            send_key(&kb->key, 1); send_key(&kb->key, 0);
+            if (s_logInput) logf("input: key %s tap", kb->name);
+        }
         if (on && !kb->held) {
             kb->held = 1; send_key(&kb->key, 1);
             kb->nextRepeat = now + 350;
@@ -647,29 +659,49 @@ static void update_keys(DWORD now)
     }
 }
 
+static DWORD s_logT0;
+#define T_MS ((GetTickCount() - s_logT0))
+#define T_S  (T_MS / 1000)
+#define T_C  ((T_MS % 1000) / 10)
+
 static void log_changes(void)
 {
+    if (!s_logT0) s_logT0 = GetTickCount();
     static InDevState last[IN_MAX_DEVS];
     static char lastName[IN_MAX_DEVS][128];
     int i, k;
     for (i = 0; i < s_ndev; i++) {
         Dev *d = &s_dev[i];
-        if (!str_eq(lastName[i], d->info.name)) { last[i] = d->st; str_cpy(lastName[i], d->info.name, 128); continue; }
+        if (!str_eq(lastName[i], d->info.name)) {
+            /* new device: dump its starting state so held toggles/sliders are visible */
+            char line[512];
+            int n = 0;
+            last[i] = d->st; str_cpy(lastName[i], d->info.name, 128);
+            n += wsprintfA(line + n, "input: %s initial:", d->info.name);
+            for (k = 0; k < IN_AXES && n < 440; k++)
+                if (d->info.axisMask & (1 << k)) n += wsprintfA(line + n, " %s=%d%%", in_axis_name(k, d->info.isPad), d->st.ax[k] * 100 / 65535);
+            for (k = 0; k < IN_POVS && n < 440; k++)
+                if (d->st.pov[k] != IN_POV_CENTER) n += wsprintfA(line + n, " POV%d=%lu", k + 1, d->st.pov[k] / 100);
+            for (k = 0; k < IN_BUTTONS && n < 470; k++)
+                if (d->st.btn[k]) n += wsprintfA(line + n, " B%d", k + 1);
+            logf("%s", line);
+            continue;
+        }
         for (k = 0; k < IN_BUTTONS; k++) if ((last[i].btn[k] != 0) != (d->st.btn[k] != 0)) {
             if (d->info.isPad) {
                 static const char *const pb[10] = { "A", "B", "X", "Y", "LB", "RB", "BACK", "START", "LS", "RS" };
-                if (k < 10) logf("input: %s:%s %s", d->info.name, pb[k], d->st.btn[k] ? "down" : "up");
-            } else logf("input: %s:B%d %s", d->info.name, k + 1, d->st.btn[k] ? "down" : "up");
+                if (k < 10) logf("input: [%lu.%02lu] %s:%s %s", T_S, T_C, d->info.name, pb[k], d->st.btn[k] ? "down" : "up");
+            } else logf("input: [%lu.%02lu] %s:B%d %s", T_S, T_C, d->info.name, k + 1, d->st.btn[k] ? "down" : "up");
         }
         for (k = 0; k < IN_POVS; k++) if (last[i].pov[k] != d->st.pov[k]) {
-            if (d->st.pov[k] == IN_POV_CENTER) logf("input: %s:%s%d centred", d->info.name, d->info.isPad ? "DPAD" : "POV", k + 1);
-            else logf("input: %s:%s%d %lu deg", d->info.name, d->info.isPad ? "DPAD" : "POV", k + 1, d->st.pov[k] / 100);
+            if (d->st.pov[k] == IN_POV_CENTER) logf("input: [%lu.%02lu] %s:%s%d centred", T_S, T_C, d->info.name, d->info.isPad ? "DPAD" : "POV", k + 1);
+            else logf("input: [%lu.%02lu] %s:%s%d %lu deg", T_S, T_C, d->info.name, d->info.isPad ? "DPAD" : "POV", k + 1, d->st.pov[k] / 100);
         }
         for (k = 0; k < IN_AXES; k++) {
             int dv = d->st.ax[k] - last[i].ax[k];
             if (!(d->info.axisMask & (1 << k))) continue;
             if (dv > 6553 || dv < -6553) {
-                logf("input: %s:%s %d%%", d->info.name, in_axis_name(k, d->info.isPad), d->st.ax[k] * 100 / 65535);
+                logf("input: [%lu.%02lu] %s:%s %d%%", T_S, T_C, d->info.name, in_axis_name(k, d->info.isPad), d->st.ax[k] * 100 / 65535);
                 last[i].ax[k] = d->st.ax[k];
             }
         }

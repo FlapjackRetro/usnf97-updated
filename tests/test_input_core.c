@@ -51,6 +51,11 @@ int main(void)
     CHECK(keyspec_parse("{", &k) && k.scan == 0x1a && k.mods == 1, "{ = Shift+[");
     CHECK(keyspec_parse("Num+", &k) && k.scan == 0x4e && k.mods == 0, "Num+");
     CHECK(keyspec_parse("+", &k) && k.scan == 0x0d && k.mods == 1, "+ = Shift+=");
+    { InSrc t;
+      CHECK(insrc_parse("Echo:B13!", &t) && t.tap && !t.hasThresh && !strcmp(t.ctl, "B13"), "tap suffix");
+      CHECK(insrc_parse("Echo:Z>50!", &t) && t.tap && t.hasThresh && t.threshPct == 50 && t.wantGT && !strcmp(t.ctl, "Z"), "tap with threshold");
+      CHECK(insrc_parse("Echo:B5", &t) && !t.tap, "no tap by default");
+      CHECK(!insrc_parse("Echo:!", &t), "bare ! rejected"); }
     CHECK(keyspec_parse("PgDn", &k) && k.scan == 0x51, "PgDn");
     CHECK(keyspec_parse("F12", &k) && k.scan == 0x58, "F12");
     CHECK(!keyspec_parse("Hyper+x", &k), "unknown modifier rejected");
