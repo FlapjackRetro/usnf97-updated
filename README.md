@@ -58,6 +58,10 @@ All off by default; set them in `usnf97fix.ini`.
 
 Haze and fog from the mission's weather still limit how far you can see.
 
+## Keyboard
+
+The game's keyboard reference card is reproduced in [CONTROLS.md](CONTROLS.md): flying, weapons, sensors, views, cockpit windows, wingman commands and multiplayer chat.
+
 ## Controllers
 
 The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, one hat and four buttons. usnf97fix redirects those calls to a virtual joystick fed from DirectInput 8 controllers (HOTAS, flight controllers, pedals) and XInput pads. It also sets the game's own Flight › Control choices (Joystick / Rudder pedals / Throttle stick, or Keyboard) to match at every flight start.
@@ -140,4 +144,5 @@ gcc -o /tmp/t tests/test_patch_core.c src/patch_core.c && /tmp/t path/to/USNF.EX
 | `tools/sms_dump.py` | dumps `USNF.SMS` symbol maps |
 | `install.ps1` | installer |
 | `usnf97fix.ini` | default settings |
+| `CONTROLS.md` | keyboard reference |
 | `NOTES.md` | reverse-engineering notes |
