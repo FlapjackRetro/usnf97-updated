@@ -98,14 +98,15 @@ void log_open(void)
     s_log = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 }
 
-/* wsprintfA is cdecl/varargs; forward our va_list by re-pushing up to 8 args. */
 void logf(const char *fmt, ...)
 {
     char buf[1100];
-    DWORD *a = (DWORD *)((char *)&fmt + sizeof(fmt));
+    va_list ap;
     DWORD n, w;
     if (s_log == INVALID_HANDLE_VALUE && !g_cfg.log) return;
-    n = (DWORD)wsprintfA(buf, fmt, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
+    va_start(ap, fmt);
+    n = (DWORD)wvsprintfA(buf, fmt, ap);      /* user32: at most 1024 chars of output */
+    va_end(ap);
     if (n > sizeof buf - 3) n = sizeof buf - 3;
     buf[n++] = '\r'; buf[n++] = '\n'; buf[n] = 0;
     OutputDebugStringA(buf);

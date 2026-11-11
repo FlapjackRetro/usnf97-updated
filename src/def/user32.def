@@ -30,3 +30,4 @@ MessageBoxA@16
 wsprintfA
 GetForegroundWindow@0
 MapVirtualKeyA@8
+wvsprintfA@12

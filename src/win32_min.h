@@ -220,6 +220,17 @@ IMPORT int     WINAPI MessageBoxA(HWND, const char *, const char *, UINT);
 IMPORT HWND    WINAPI GetForegroundWindow(void);
 IMPORT UINT    WINAPI MapVirtualKeyA(UINT, UINT);
 IMPORT int     __cdecl wsprintfA(char *, const char *, ...);
+/* varargs without the CRT: compiler builtins (clang), classic x86 stack walk (MSVC) */
+#if defined(__clang__) || defined(__GNUC__)
+typedef __builtin_va_list va_list;
+#define va_start(ap, last) __builtin_va_start(ap, last)
+#define va_end(ap)         __builtin_va_end(ap)
+#else
+typedef char *va_list;
+#define va_start(ap, last) ((ap) = (va_list)&(last) + ((sizeof(last) + 3) & ~3))
+#define va_end(ap)         ((ap) = (va_list)0)
+#endif
+IMPORT int     WINAPI wvsprintfA(char *, const char *, va_list);
 #define IDC_ARROW ((const char *)32512)
 
 /* ---- gdi32 ---- */
