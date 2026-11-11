@@ -1,0 +1,4 @@
+LIBRARY ddraw
+EXPORTS
+DirectDrawCreate=_DirectDrawCreate@12
+DirectDrawEnumerateA=_DirectDrawEnumerateA@8

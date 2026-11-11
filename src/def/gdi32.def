@@ -1,0 +1,6 @@
+LIBRARY gdi32.dll
+EXPORTS
+StretchDIBits@52
+SetStretchBltMode@8
+SetBrushOrgEx@16
+GetStockObject@4

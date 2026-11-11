@@ -1,0 +1,20 @@
+# EA's files: never commit game data, executables, disc images or patches
+*.mdf
+*.mds
+*.iso
+usnf14.exe
+*.LIB
+*.lib
+USNF.EXE
+USNF.SMS
+*.SMS
+*.DLL
+/game/
+# data derived from EA's files (symbol dumps, disassembly)
+/analysis/
+
+# build outputs
+/build/
+/dist/
+*.obj
+*.log
