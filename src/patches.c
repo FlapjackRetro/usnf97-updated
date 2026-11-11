@@ -320,6 +320,7 @@ void patches_apply(void)
     if (g_cfg.fixGameSpeed) patch_timeupdate();
     else logf("speed fix: disabled in ini");
     patch_force_detail();
+    input_patch_controls();
     widescreen_apply();
     hires_apply();
     terrain_apply();

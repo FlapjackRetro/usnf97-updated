@@ -120,7 +120,7 @@ static const char *const k_roleKey[R_COUNT] = { "Roll", "Pitch", "Throttle", "Ru
 #define MAX_SRC 4
 
 typedef struct { InSrc src[MAX_SRC]; int n; int mapped; } Role;
-typedef struct { char name[48]; KeySpec key; InSrc src[MAX_SRC]; int n; int held; DWORD nextRepeat; unsigned char prev[MAX_SRC]; unsigned char primed; } KeyBind;
+typedef struct { char name[48]; KeySpec key; InSrc src[MAX_SRC]; int n; int held; DWORD nextRepeat; unsigned char prev[MAX_SRC]; unsigned char primed; DWORD tapUntil; } KeyBind;
 #define MAX_KEYBINDS 96
 
 typedef struct { int x, y, z, r; unsigned int pov; DWORD buttons; } Virtual;
@@ -137,7 +137,8 @@ static KeyBind  s_keys[MAX_KEYBINDS];
 static int      s_nkeys;
 static Virtual  s_virt;
 static int      s_hasStick, s_hasThrottle, s_hasRudder, s_hasHat, s_present;
-static int      s_deadzone, s_logInput, s_keysUnfocused;
+static int      s_deadzone, s_logInput, s_keysUnfocused, s_forceCtl;
+static DWORD   *s_gStick, *s_gRudder, *s_gThrottle;
 static char     s_iniPath[280];
 static DIOBJECTDATAFORMAT s_objs[8 + 4 + 128];
 static DIDATAFORMAT       s_fmt;
@@ -641,9 +642,18 @@ static void update_keys(DWORD now)
         }
         kb->primed = 1;
         if (!focused) on = 0;
-        if (tap && !kb->held) {
-            send_key(&kb->key, 1); send_key(&kb->key, 0);
+        /* a tap holds the key for a few game frames: the game reads command keys from its key
+           table once per frame, so a down+up posted together is usually missed */
+        if (tap) {
+            if (!kb->held && !kb->tapUntil) send_key(&kb->key, 1);
+            kb->tapUntil = now + 150;
+            if (!kb->tapUntil) kb->tapUntil = 1;
             if (s_logInput) logf("input: key %s tap", kb->name);
+        }
+        if (kb->tapUntil) {
+            if ((LONG)(now - kb->tapUntil) < 0) { kb->held = 1; continue; }
+            kb->tapUntil = 0;
+            if (!on) { kb->held = 0; send_key(&kb->key, 0); continue; }
         }
         if (on && !kb->held) {
             kb->held = 1; send_key(&kb->key, 1);
@@ -777,6 +787,7 @@ static void input_init_locked(void)
     s_deadzone = (int)GetPrivateProfileIntA("input", "Deadzone", 3, s_iniPath);
     s_logInput = (int)GetPrivateProfileIntA("input", "LogInput", 0, s_iniPath);
     s_keysUnfocused = (int)GetPrivateProfileIntA("input", "KeysWhenUnfocused", 0, s_iniPath);
+    s_forceCtl = (int)GetPrivateProfileIntA("input", "SetGameControls", 1, s_iniPath);
     build_format();
 
     m = LoadLibraryA("xinput1_4.dll");
@@ -873,4 +884,50 @@ UINT WINAPI hook_joyGetPosEx(UINT id, void *p)
     else if (ji->dwFlags & JOY_RETURNPOVCTS) ji->dwPOV = v.pov;
     else ji->dwPOV = ((v.pov + 4500) / 9000 % 4) * 9000;          /* 4-way like an old hat */
     return JOYERR_NOERROR;
+}
+
+/* ------------------------------------------------------------------ */
+/* Flight > Control: set the game's stick/rudder/throttle source to   */
+/* match [input] each time a flight starts (InitPlayerControl)        */
+/* ------------------------------------------------------------------ */
+static void __stdcall force_controls(void)
+{
+    static const char *const stickName[11] = { "Keyboard", "Joystick", "CH F-16 Flight Stick", "CH F-16 Combat Stick",
+        "CH Flightstick Pro", "Sidewinder 3D Pro", "?", "?", "?", "?", "Jane's Combat Stick" };
+    DWORD st, ru, th;
+    input_init();
+    if (!s_gStick) return;
+    st = *s_gStick;
+    if (!s_hasStick) st = 0;
+    else if (!(st >= 1 && st <= 5) && st != 10) st = 1;     /* keep a stick preset the player chose */
+    ru = s_hasRudder ? 7 : 6;
+    th = s_hasThrottle ? 9 : 8;
+    if (st != *s_gStick || ru != *s_gRudder || th != *s_gThrottle)
+        logf("input: Flight > Control set to Stick=%s, Rudder=%s, Throttle=%s (was %lu/%lu/%lu)",
+             stickName[st], ru == 7 ? "Rudder pedals" : "Keyboard", th == 9 ? "Throttle stick" : "Keyboard",
+             *s_gStick, *s_gRudder, *s_gThrottle);
+    *s_gStick = st; *s_gRudder = ru; *s_gThrottle = th;
+}
+
+static unsigned char s_ctlStub[32];
+
+void input_patch_controls(void)
+{
+    static const unsigned char head[8] = { 0x53, 0x56, 0x57, 0x68, 0x00, 0x80, 0x00, 0x00 };
+    BYTE *a = (BYTE *)patches_symbol("_InitPlayerControl@0"), *p = s_ctlStub, j[8];
+    DWORD old;
+    if (!s_enabled || !s_forceCtl) { logf("game controls: left as set in Flight > Control"); return; }
+    if (!a || memcmp(a, head, 8) || a[0x24] != 0xA1 || a[0x33] != 0xA1 || a[0x43] != 0xA1) {
+        logf("game controls: InitPlayerControl not recognised; set Flight > Control by hand"); return;
+    }
+    s_gStick = *(DWORD **)(a + 0x25); s_gRudder = *(DWORD **)(a + 0x34); s_gThrottle = *(DWORD **)(a + 0x44);
+    if (!VirtualProtect(s_ctlStub, sizeof s_ctlStub, PAGE_EXECUTE_READWRITE, &old)) { logf("game controls: VirtualProtect failed"); return; }
+    *p++ = 0x60;                                                       /* pushad */
+    *p++ = 0xE8; *(DWORD *)p = (DWORD)force_controls - (DWORD)(p + 4); p += 4;
+    *p++ = 0x61;                                                       /* popad */
+    memcpy(p, head, 8); p += 8;
+    *p++ = 0xE9; *(DWORD *)p = (DWORD)(a + 8) - (DWORD)(p + 4); p += 4;
+    j[0] = 0xE9; *(DWORD *)(j + 1) = (DWORD)s_ctlStub - (DWORD)(a + 5); j[5] = j[6] = j[7] = 0x90;
+    logf("game controls: set from [input] at each flight start (%s; stick %p, rudder %p, throttle %p)",
+         write_code(a, j, 8) ? "ok" : "failed", (void *)s_gStick, (void *)s_gRudder, (void *)s_gThrottle);
 }
