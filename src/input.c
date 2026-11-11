@@ -768,6 +768,7 @@ void input_configure(void)
     str_cpy(s_iniPath, g_gameDir, sizeof s_iniPath);
     str_cat(s_iniPath, "usnf97fix.ini", sizeof s_iniPath);
     s_enabled = GetPrivateProfileIntA("input", "Enable", 1, s_iniPath) != 0;
+    s_forceCtl = (int)GetPrivateProfileIntA("input", "SetGameControls", 1, s_iniPath);
     InitializeCriticalSection(&s_lock);
 }
 
@@ -787,7 +788,6 @@ static void input_init_locked(void)
     s_deadzone = (int)GetPrivateProfileIntA("input", "Deadzone", 3, s_iniPath);
     s_logInput = (int)GetPrivateProfileIntA("input", "LogInput", 0, s_iniPath);
     s_keysUnfocused = (int)GetPrivateProfileIntA("input", "KeysWhenUnfocused", 0, s_iniPath);
-    s_forceCtl = (int)GetPrivateProfileIntA("input", "SetGameControls", 1, s_iniPath);
     build_format();
 
     m = LoadLibraryA("xinput1_4.dll");
@@ -861,6 +861,7 @@ UINT WINAPI hook_joyGetPos(UINT id, void *p)
     input_init();
     if (!ji) return JOYERR_PARMS;
     if (id != 0 || !s_present) return JOYERR_UNPLUGGED;
+    { static int once; if (!once) { once = 1; logf("input: game reads the joystick (joyGetPos)"); } }
     v = snapshot();
     ji->wXpos = (UINT)v.x; ji->wYpos = (UINT)v.y; ji->wZpos = (UINT)v.z; ji->wButtons = v.buttons;
     return JOYERR_NOERROR;
@@ -874,6 +875,7 @@ UINT WINAPI hook_joyGetPosEx(UINT id, void *p)
     input_init();
     if (!ji || ji->dwSize < sizeof(JOYINFOEX)) return JOYERR_PARMS;
     if (id != 0 || !s_present) return JOYERR_UNPLUGGED;
+    { static int once; if (!once) { once = 1; logf("input: game reads the joystick (joyGetPosEx, flags %08lx)", ji->dwFlags); } }
     v = snapshot();
     ji->dwXpos = (DWORD)v.x; ji->dwYpos = (DWORD)v.y; ji->dwZpos = (DWORD)v.z; ji->dwRpos = (DWORD)v.r;
     ji->dwUpos = ji->dwVpos = 0;
