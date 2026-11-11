@@ -97,7 +97,8 @@ Diagnosis notes: message tracing showed the subclassed window got Alt but never 
 ## To do
 
 - **32:9 flight view: done** (`WideFlight=1`, see "Wide flight view" below). Not yet checked: other aircraft cockpits, external/padlock views, MFD view windows, multiplayer.
-- **Higher internal resolution for the 3D view.** Decision: the cockpit art and the 2D HUD/GUI stay as they are (original 480-line art, scaled up as now); only the 3D scene renders at a higher internal resolution (e.g. 2×/3× of 1706×480). Open questions:
+- **Higher internal resolution for the 3D view: done** (`RenderScale=2`, see below). 3× would need `_lineStats` relocated (1200-line table, followed by the texture mapper's state).
+- *(original plan)* **Higher internal resolution for the 3D view.** Decision: the cockpit art and the 2D HUD/GUI stay as they are (original 480-line art, scaled up as now); only the 3D scene renders at a higher internal resolution (e.g. 2×/3× of 1706×480). Open questions:
   - Can the 3D pass and the 2D overlays be separated (render 3D large, then composite the original cockpit/HUD scaled)?
   - How does the software rasterizer size its buffers and projection, and what hard limits does it have (1600-wide buffers)?
   - How does the 8-bit software renderer perform at high resolution?
@@ -112,3 +113,27 @@ The 3D viewport, HUD centre (the boresight projected through the 3D engine), dia
 - **Projection.** `render_3d` normalizes to the larger screen axis (aspect values `_aspectx/y/z` scale the view matrix; `sx = x·ax·scrw/(z·az)`), so a wider screen zoomed in (vert-). Patched to compute the aspect values with min(scrw, scrh·4/3), then scale `_aspectx` by that / scrw. Result: hor+, with the culling FOV (`field_of_view`) and the horizon corners (`_SolidHorizon`) consistent.
 - **Cockpit.** `HUDInit` uses the high-res art, hotspot and positions only for exactly 640×480; its four 640 constants become W.
 - **Haze spans.** `G_SUPolygon` (Gouraud, used for the horizon haze) counted 4-pixel groups in CL, so spans over 1023 px wrapped (1704 drew as 680). Now `dec cx`; ECX's low word is otherwise unused there. The textured span routines also count in CL but use ECX's high bits for texture coordinates; their spans are short perspective segments, so they are unaffected.
+
+## Higher internal 3D resolution (src/hires.c)
+
+- FlyingLoop's `T_Render(&_mainV)` is redirected. It first renders into our own 2× bitmap (game layout: +2 w, +6 h, +0A pixels, +22 row table; `_cb` is swapped, the clip box set to the full size, and `_sizeAdjust` multiplied by 2 inside T_Render's `GRRender` call), then renders normally. Because the normal pass is last, every projection global and the visible-target list are unchanged.
+- After the normal render, the frame is snapshotted. At `GG_Flush` (entry hooked with a 6-byte trampoline), pixels that differ from the snapshot were drawn by 2D layers and are scaled 2×; the rest comes from the 2× render. The presenter shows that composite.
+- Limits: per-scanline tables are sized for 1200 lines. `_lineStats` (dirty lines, 1296 bytes) is directly followed by `_gbuffer`, the texture mapper's live state, so a 1440-line pass would corrupt it. Polygon YLR entries are 6 bytes/line (~3300 lines).
+
+## Model detail (ForceHighDetail)
+
+Models are bytecode. `do_jumpfar4` operands are [size][threshold][offset]: if size·aspecty·scrh/depth < threshold·`_sizeAdjust`, it jumps to the low-detail part. NOPing that `jb` keeps the offset 0. `_effects & 0x20000` bypasses the test too (probably the reference viewer).
+
+## Terrain and draw distance (src/terrain.c)
+
+- `T_Make` rebuilds a terrain quadtree per frame. Root cell size (`0x5030e0`) and texture level (`0x503094`: 1/2/4/8) come from altitude.
+- A node of size s is split when its distance < f(s, terrain-detail pref). Nodes "behind" (heading zones, ±60° around each axis) get 1/8 of that, and nodes beyond the weather layer's range (`_currentLayer+22h`) are dropped.
+- Only nodes ≤ the texture level are textured. Buildings and airfields (`T_SortTmapList`) attach only to nodes ≤ 4. Everything else is a flat polygon.
+- Capacities (all bounds-checked by the game except the node array):
+  - node array: 499 × 22 bytes, reached only through the pointer at `0x4d0048`; add limit 1F3h, split limit 1F0h
+  - terrain command list: 10000 bytes, set by immediates in `T_InitDatabase`
+  - main view object list: `VIEWInit(&_mainV, 10000)` in `usnfmain`
+  - render_3d sort list (~350 objects) and object buffer: immediates in `render_3d` and `GRAddBrentObj`
+- `TerrainDetail=N` multiplies the split distance by N (stub after it is computed) and every capacity above by N².
+- Moving objects are culled per type in `T_AddYourObjs` (distance vs type+37h); `ObjectRange=1` removes that `jg`.
+- Wide view: T_Make's visible box uses the view triangle at a fixed ±45° (corners ±80Eh, 80Eh ahead, rotated by heading). The x components are scaled by W/640, and the behind-zones are narrowed by the extra half-angle (60° → ~36° at 1704).

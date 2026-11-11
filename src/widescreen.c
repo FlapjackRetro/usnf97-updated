@@ -28,13 +28,20 @@
  *     count setup becomes a call to "shr eax,2; mov cx,ax; sub edi,4" and the loop
  *     uses dec cx. Affects close-up textured polygons wider than 1023 pixels.
  *
+ *  8. T_Make (terrain/building visibility) bounds the visible area with the view
+ *     triangle at a fixed +-45 deg (corners (-80Eh,80Eh) and (80Eh,80Eh), rotated by
+ *     heading). A stub before the rotation scales the two x components by W/640, so
+ *     terrain and buildings at the sides of the wide view are not culled.
+ *  9. T_Make's "behind you" heading zones (+-60 deg around each axis; nodes behind get
+ *     less detail) are narrowed by the extra half-angle, keeping the original margin.
+ *
  * Everything else (3D clip box, HUD centre, dialogs, cockpit panels, mouse limits)
  * already follows the screen size. */
 #include "shim.h"
 
 #define WIDE_MODE 0x20
 
-static BYTE  s_code[256];
+static BYTE  s_code[512];
 static int   s_codeUsed;
 static DWORD s_projW;              /* written by the render_3d stub */
 static char  s_modeName[24];
@@ -116,7 +123,7 @@ void widescreen_apply(void)
 
     /* ---- locate and verify every site before changing anything ---- */
     DWORD um[3], getJa, initSite, initJe, initDef, initCont, hud[4], rSite1, rSite2, gmHi, spanSite;
-    DWORD linStart[3], linDec[3];
+    DWORD linStart[3], linDec[3], viewSite, zone[8];
     {
         /* 1. usnfmain: mov eax,[fm]; mov ecx,[shell]; cmp ecx,eax  (enter + leave) */
         static const unsigned short p1[] = { 0xA1,0xFFFF,0xFFFF,0xFFFF,0xFFFF, 0x8B,0x0D,0xFFFF,0xFFFF,0xFFFF,0xFFFF, 0x3B,0xC8 };
@@ -211,6 +218,25 @@ void widescreen_apply(void)
         if (find(c, h2, p, 8)) { logf("wide flight: more texture span loops than expected; off"); return; }
     }
 
+    {
+        /* 8/9. T_Make: mov ax,[_v+2Ch]; lea ecx,[esp]; push eax; push ecx; call Rotate2
+         *      and cmp word [_v+2Ch], imm16 (8 heading thresholds) */
+        DWORD v = patches_symbol("_v"), tmLo, tmHi, c;
+        unsigned short p[12], q[7];
+        int i;
+        if (!v || !(tmLo = fn_range("_T_Make@12", &tmHi))) { logf("wide flight: T_Make not found; off"); return; }
+        v += 0x2C;
+        p[0] = 0x66; p[1] = 0xA1; p[2] = v & 0xFF; p[3] = (v >> 8) & 0xFF; p[4] = (v >> 16) & 0xFF; p[5] = v >> 24;
+        p[6] = 0x8D; p[7] = 0x4C; p[8] = 0x24; p[9] = 0x00; p[10] = 0x50; p[11] = 0x51;
+        q[0] = 0x66; q[1] = 0x81; q[2] = 0x3D; q[3] = p[2]; q[4] = p[3]; q[5] = p[4]; q[6] = p[5];
+        if (!(viewSite = find(tmLo, tmHi, p, 12)) || find(viewSite + 1, tmHi, p, 12)) { logf("wide flight: T_Make view bounds not as expected; off"); return; }
+        for (c = tmLo, i = 0; i < 8; i++) {
+            if (!(zone[i] = find(c, tmLo + 0x200, q, 7))) { logf("wide flight: T_Make heading zones not as expected; off"); return; }
+            c = zone[i] + 9;
+        }
+        if (!(*(WORD *)(zone[0] + 7) == 0xD558 && *(WORD *)(zone[1] + 7) == 0x2AA8)) { logf("wide flight: T_Make heading zones have unexpected values; off"); return; }
+    }
+
     /* ---- build stubs ---- */
     wsprintfA(s_modeName, "%dx480x256", W);
 
@@ -290,7 +316,23 @@ void widescreen_apply(void)
         s[6] = 0x83; s[7] = 0xEF; s[8] = 0x04;          /* sub edi,4 */
         s[9] = 0xC3;
     }
-    if (!stubLin || !stubMode || !stubGet || !stubInit || !stubProjW || !stubAx) { logf("wide flight: stub buffer too small; off"); return; }
+    /* view-bounds stub: scale [esp+4] and [esp+10h] (the corners' x, caller's [esp]/[esp+0Ch])
+     * by K/256, then do the replaced mov ax,[_v+2Ch] */
+    DWORD K = (DWORD)W * 256 / 640;
+    BYTE *stubView = s = code_alloc(4 + 6 + 3 + 4 + 4 + 6 + 3 + 4 + 6 + 1);
+    if (s) {
+        int k = 0, j;
+        for (j = 0; j < 2; j++) {
+            BYTE off = j ? 0x10 : 0x04;
+            s[k++] = 0x8B; s[k++] = 0x44; s[k++] = 0x24; s[k++] = off;         /* mov eax,[esp+off] */
+            s[k++] = 0x69; s[k++] = 0xC0; put32(s + k, K); k += 4;              /* imul eax,eax,K */
+            s[k++] = 0xC1; s[k++] = 0xF8; s[k++] = 0x08;                        /* sar eax,8 */
+            s[k++] = 0x89; s[k++] = 0x44; s[k++] = 0x24; s[k++] = off;         /* mov [esp+off],eax */
+        }
+        memcpy(s + k, (const void *)viewSite, 6); k += 6;                       /* mov ax,[_v+2Ch] */
+        s[k++] = 0xC3;
+    }
+    if (!stubView || !stubLin || !stubMode || !stubGet || !stubInit || !stubProjW || !stubAx) { logf("wide flight: stub buffer too small; off"); return; }
     FlushInstructionCache(GetCurrentProcess(), s_code, sizeof s_code);
 
     /* ---- apply ---- */
@@ -328,10 +370,33 @@ void widescreen_apply(void)
         n += write_code((void *)linStart[a], b, 8);
         n += write_code((void *)linDec[a], decCx, 2);
     }
+    {
+        BYTE b[6];
+        b[0] = 0xE8; put32(b + 1, (DWORD)stubView - (viewSite + 5)); b[5] = 0x90;
+        n += write_code((void *)viewSite, b, 6);
+    }
+    {
+        /* extra half-angle in 1/65536 turns: atan(W/640) - 45 deg; atan(x) = 90deg - atan(1/x),
+         * atan(y) ~ y - y^3/3 + y^5/5 - y^7/7 for y = 640/W < 1 */
+        double y = 640.0 / (double)W, y2 = y * y;
+        double at = y * (1.0 - y2 * (1.0 / 3 - y2 * (1.0 / 5 - y2 * (1.0 / 7 - y2 / 9))));
+        int half = (int)(16384.0 - at * 65536.0 / 6.283185307179586), delta = half - 8192, i;
+        /* pairs in code order: around 0 (N), 8000h (S, outside test), 4000h, C000h */
+        static const WORD centre[8] = { 0, 0, 0x8000, 0x8000, 0x4000, 0x4000, 0xC000, 0xC000 };
+        for (i = 0; i < 8; i++) {
+            WORD v = *(WORD *)(zone[i] + 7), c = centre[i];
+            short t = (short)(WORD)(v - c);
+            int mag = (t < 0 ? -t : t) - delta;
+            if (mag < 0) mag = 0;
+            v = (WORD)(c + (t < 0 ? -mag : mag));
+            n += write_code((void *)(zone[i] + 7), &v, 2);
+        }
+        logf("wide flight: terrain view +-%d deg (was 45)", (half * 360 + 32768) / 65536);
+    }
     n += call7(rSite1, stubProjW);
     n += call7(rSite2, stubAx);
     (void)gmHi;
-    logf("wide flight: %d x 480 for flight at the 640x480 setting (%d/18 patches; usnfmain %08lX/%08lX/%08lX, "
+    logf("wide flight: %d x 480 for flight at the 640x480 setting (%d/27 patches; usnfmain %08lX/%08lX/%08lX, "
          "GetMode %08lX, InitMode %08lX, HUDInit %08lX, render_3d %08lX/%08lX, spans %08lX)",
          W, n, um[0], um[1], um[2], getJa, initSite, hud[0], rSite1, rSite2, spanSite);
 }

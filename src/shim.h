@@ -115,6 +115,7 @@ void present_set_window(HWND hwnd);                 /* from SetCooperativeLevel 
 void present_set_mode(int w, int h);                /* from SetDisplayMode */
 void present_set_hires(const BYTE *buf, int w, int h, int loW, int loH);  /* NULL = none */
 void hires_apply(void);
+void terrain_apply(void);
 void present_set_primary(DDSurface *primary);
 void present_release_primary(DDSurface *primary);   /* no-op unless it is the current one */
 void present_mark_dirty(int commit);                /* commit=1: frame complete, present now */

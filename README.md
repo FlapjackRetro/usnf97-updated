@@ -47,6 +47,17 @@ Each start writes `usnf97fix.log`. It records which fixes were applied and any D
 
 Set `WideFlight=1` in `usnf97fix.ini` and choose 640×480 under Pref → Screen resolution. Flight then runs at a 480-line resolution as wide as your screen's aspect ratio (1704×480 on 32:9, 1144×480 on 21:9). You get the same vertical view as 640×480 plus more to the sides, with the original high-res cockpit art. Menus stay 640×480; the bars beside them are filled per `SideFill`. Use Alt+Enter for borderless fullscreen.
 
+## Detail and draw distance
+
+All off by default; set them in `usnf97fix.ini`.
+
+- `RenderScale=2` renders the in-flight 3D scene at twice the game's resolution. The cockpit, HUD and menus keep their original art. It needs a 640×480 flight resolution (or the wide view). 2 is the most the 3D engine's tables allow.
+- `ForceHighDetail=1` makes ships, aircraft and buildings always use their most detailed model.
+- `TerrainDetail=2` (up to 4) extends detailed, textured terrain and buildings that many times farther. The cost grows roughly with the square.
+- `ObjectRange=1` keeps ships, aircraft and vehicles drawn at any distance.
+
+Haze and fog from the mission's weather still limit how far you can see.
+
 ## Controllers
 
 The game only knows the 1996 Windows joystick API: one stick, throttle, rudder, one hat and four buttons. usnf97fix redirects those calls to a virtual joystick fed from DirectInput 8 controllers (HOTAS, flight controllers, pedals) and XInput pads.

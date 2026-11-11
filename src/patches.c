@@ -322,4 +322,5 @@ void patches_apply(void)
     patch_force_detail();
     widescreen_apply();
     hires_apply();
+    terrain_apply();
 }

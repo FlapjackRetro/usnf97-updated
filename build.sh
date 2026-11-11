@@ -11,7 +11,7 @@ done
 CFLAGS="--target=i686-pc-windows-msvc -O2 -msse2 -ffreestanding -fno-builtin -fno-stack-protector \
         -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-parameter -Werror -std=c99 -fms-extensions"
 OBJS=""
-for f in util ddraw present patches patch_core input_core input hangwatch widescreen hires main; do
+for f in util ddraw present patches patch_core input_core input hangwatch widescreen hires terrain main; do
     clang $CFLAGS -c src/$f.c -o "$OUT/obj/$f.obj"
     OBJS="$OBJS $OUT/obj/$f.obj"
 done
