@@ -12,6 +12,7 @@ typedef struct {
     int  filter;            /* 0 = nearest (sharp), 1 = smooth (GDI halftone) */
     int  aspectCorrect;     /* 1 = show 320x200 at 4:3 like a CRT did */
     int  stretch;           /* 1 = fill the window, ignore aspect */
+    int  sideFill;          /* pillarbox bars: 0 = black, 1 = ambient (blurred picture edges) */
     int  vsync;             /* 1 = pace presentation to the compositor (DwmFlush) */
     int  frameCap;          /* 0 = off; else max game fps (only lowers the cap) */
     int  fixGameSpeed;      /* 1 = wait for real time instead of clamping the timestep */
@@ -137,6 +138,9 @@ BOOL WINAPI hook_ClipCursor(const RECT *);
 
 /* ---------- exe patching ---------- */
 DWORD patches_symbol(const char *name);            /* USNF.SMS lookup, 0 if unknown */
+DWORD patches_symbol_size(DWORD addr);             /* bytes to the next symbol, 0 if unknown */
+int   write_code(void *dst, const void *src, unsigned n);
+void  widescreen_apply(void);
 const char *patches_symbol_at(DWORD addr, DWORD *base);
 void hang_watch_start(HWND hwnd);
 void patches_apply(void);                          /* DllMain: CD path, IAT hooks, speed fix */

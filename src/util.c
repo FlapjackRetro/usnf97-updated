@@ -70,6 +70,11 @@ void config_load(void)
     g_cfg.filter            = GetPrivateProfileIntA(S, "Filter", 0, s_iniPath);
     g_cfg.aspectCorrect     = GetPrivateProfileIntA(S, "AspectCorrect", 1, s_iniPath);
     g_cfg.stretch           = GetPrivateProfileIntA(S, "Stretch", 0, s_iniPath);
+    {
+        char v[16];
+        GetPrivateProfileStringA(S, "SideFill", "ambient", v, sizeof v, s_iniPath);
+        g_cfg.sideFill = (v[0] == 'b' || v[0] == 'B' || v[0] == '0') ? 0 : 1;
+    }
     g_cfg.vsync             = GetPrivateProfileIntA(S, "VSync", 1, s_iniPath);
     g_cfg.frameCap          = GetPrivateProfileIntA(S, "FrameCap", 0, s_iniPath);
     g_cfg.fixGameSpeed      = GetPrivateProfileIntA(S, "FixGameSpeed", 1, s_iniPath);

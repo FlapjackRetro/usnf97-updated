@@ -319,6 +319,103 @@ static void fill_bars(HDC dc, int cw, int ch, const RECT *d)
     if (d->right < cw) { r.left = d->right; r.top = d->top; r.right = cw; r.bottom = d->bottom; FillRect(dc, &r, b); }
 }
 
+/* -------- ambient side fill --------
+ * Pillarbox bars show a soft, dark echo of the picture: each bar takes the outer
+ * AMB_STRIP columns of its side, averages them into a coarse grid, blurs the grid,
+ * then stretches it (bilinear) across the bar at 1/8 resolution, darkened. GDI's
+ * halftone stretch smooths the final 8x enlargement. Runs every frame; a 1600x1440
+ * bar costs a 200x180 buffer, so this is cheap. */
+#define AMB_STRIP 48
+#define AMB_GW    4
+#define AMB_GH    24
+#define AMB_MAXO  320
+
+typedef struct { BITMAPINFOHEADER h; } BMI32;
+static DWORD s_ambBuf[AMB_MAXO * AMB_MAXO];
+
+static void amb_side(HDC dc, const BYTE *pix, int pitch, int w, int h, int x0, int sw, const RECT *bar)
+{
+    int g[AMB_GH][AMB_GW][3];
+    int t[AMB_GH][AMB_GW][3];
+    int gx, gy, k, pass, ow, oh, ox, oy;
+    int bw = bar->right - bar->left, bh = bar->bottom - bar->top;
+    BMI32 bmi;
+
+    if (bw <= 0 || bh <= 0 || sw <= 0 || h <= 0) return;
+    /* 1. average blocks of the edge strip (every other pixel) */
+    for (gy = 0; gy < AMB_GH; gy++) {
+        int y0 = gy * h / AMB_GH, y1 = (gy + 1) * h / AMB_GH;
+        for (gx = 0; gx < AMB_GW; gx++) {
+            int xa = x0 + gx * sw / AMB_GW, xb = x0 + (gx + 1) * sw / AMB_GW;
+            int r = 0, gr = 0, b = 0, n = 0, x, y;
+            for (y = y0; y < y1; y += 2)
+                for (x = xa; x < xb; x += 2) {
+                    const RGBQUAD *q = &s_bmi.bmiColors[pix[y * pitch + x]];
+                    r += q->rgbRed; gr += q->rgbGreen; b += q->rgbBlue; n++;
+                }
+            if (!n) n = 1;
+            g[gy][gx][0] = r / n; g[gy][gx][1] = gr / n; g[gy][gx][2] = b / n;
+        }
+    }
+    /* 2. blur the grid: 3 passes of a [1 2 1] filter, vertical then horizontal */
+    for (pass = 0; pass < 3; pass++) {
+        for (gy = 0; gy < AMB_GH; gy++)
+            for (gx = 0; gx < AMB_GW; gx++)
+                for (k = 0; k < 3; k++) {
+                    int a = g[gy > 0 ? gy - 1 : 0][gx][k], c = g[gy < AMB_GH - 1 ? gy + 1 : gy][gx][k];
+                    t[gy][gx][k] = (a + 2 * g[gy][gx][k] + c) / 4;
+                }
+        for (gy = 0; gy < AMB_GH; gy++)
+            for (gx = 0; gx < AMB_GW; gx++)
+                for (k = 0; k < 3; k++) {
+                    int a = t[gy][gx > 0 ? gx - 1 : 0][k], c = t[gy][gx < AMB_GW - 1 ? gx + 1 : gx][k];
+                    g[gy][gx][k] = (a + 2 * t[gy][gx][k] + c) / 4;
+                }
+    }
+    /* 3. bilinear upsample to a 1/8-size buffer, darkened to ~45% */
+    ow = bw / 8; oh = bh / 8;
+    if (ow < 2) ow = 2;
+    if (oh < 2) oh = 2;
+    if (ow > AMB_MAXO) ow = AMB_MAXO;
+    if (oh > AMB_MAXO) oh = AMB_MAXO;
+    for (oy = 0; oy < oh; oy++) {
+        int fy = ((2 * oy + 1) * AMB_GH * 256) / (2 * oh) - 128, iy, iy1, wy;
+        if (fy < 0) fy = 0;
+        if (fy > (AMB_GH - 1) * 256) fy = (AMB_GH - 1) * 256;
+        iy = fy >> 8; wy = fy & 255; iy1 = iy < AMB_GH - 1 ? iy + 1 : iy;
+        for (ox = 0; ox < ow; ox++) {
+            int fx = ((2 * ox + 1) * AMB_GW * 256) / (2 * ow) - 128, ix, ix1, wx, v[3];
+            if (fx < 0) fx = 0;
+            if (fx > (AMB_GW - 1) * 256) fx = (AMB_GW - 1) * 256;
+            ix = fx >> 8; wx = fx & 255; ix1 = ix < AMB_GW - 1 ? ix + 1 : ix;
+            for (k = 0; k < 3; k++) {
+                int top = g[iy][ix][k] * (256 - wx) + g[iy][ix1][k] * wx;
+                int bot = g[iy1][ix][k] * (256 - wx) + g[iy1][ix1][k] * wx;
+                v[k] = ((top >> 8) * (256 - wy) + (bot >> 8) * wy) >> 8;
+                v[k] = v[k] * 115 >> 8;
+            }
+            s_ambBuf[oy * ow + ox] = (DWORD)v[2] | ((DWORD)v[1] << 8) | ((DWORD)v[0] << 16);
+        }
+    }
+    bmi.h.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.h.biWidth = ow; bmi.h.biHeight = -oh; bmi.h.biPlanes = 1;
+    bmi.h.biBitCount = 32; bmi.h.biCompression = BI_RGB;
+    bmi.h.biSizeImage = 0; bmi.h.biXPelsPerMeter = bmi.h.biYPelsPerMeter = 0;
+    bmi.h.biClrUsed = bmi.h.biClrImportant = 0;
+    SetStretchBltMode(dc, HALFTONE);
+    SetBrushOrgEx(dc, 0, 0, NULL);
+    StretchDIBits(dc, bar->left, bar->top, bw, bh, 0, 0, ow, oh, s_ambBuf, &bmi, DIB_RGB_COLORS, SRCCOPY);
+}
+
+static void ambient_fill(HDC dc, int cw, const RECT *d, int w, int h, int pitch)
+{
+    RECT bar;
+    int sw = w < AMB_STRIP * 4 ? w / 4 : AMB_STRIP;
+    bar.top = d->top; bar.bottom = d->bottom;
+    if (d->left > 0) { bar.left = 0; bar.right = d->left; amb_side(dc, s_stage, pitch, w, h, 0, sw, &bar); }
+    if (d->right < cw) { bar.left = d->right; bar.right = cw; amb_side(dc, s_stage, pitch, w, h, w - sw, sw, &bar); }
+}
+
 static void present_once(int force)
 {
     int w, h, pitch, i;
@@ -366,6 +463,7 @@ static void present_once(int force)
     if (g_cfg.filter) SetBrushOrgEx(dc, 0, 0, NULL);
     StretchDIBits(dc, d.left, d.top, d.right - d.left, d.bottom - d.top, 0, 0, w, h,
                   s_stage, &s_bmi, DIB_RGB_COLORS, SRCCOPY);
+    if (g_cfg.sideFill == 1) ambient_fill(dc, c.right, &d, w, h, pitch);
     ReleaseDC(hwnd, dc);
 }
 
@@ -394,7 +492,7 @@ void present_init(void)
     if (dwm) s_DwmFlush = (HRESULT (WINAPI *)(void))GetProcAddress(dwm, "DwmFlush");
     s_vblankBase = qpc_now();
     CreateThread(NULL, 0, present_thread, NULL, 0, NULL);
-    logf("presenter started (vsync=%d, filter=%d, DwmFlush=%s)", g_cfg.vsync, g_cfg.filter, s_DwmFlush ? "yes" : "no");
+    logf("presenter started (vsync=%d, filter=%d, side fill=%s, DwmFlush=%s)", g_cfg.vsync, g_cfg.filter, g_cfg.sideFill ? "ambient" : "black", s_DwmFlush ? "yes" : "no");
 }
 
 void present_set_window(HWND hwnd)

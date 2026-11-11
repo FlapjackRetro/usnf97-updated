@@ -93,3 +93,12 @@ See `analysis/usnf_1.0_symbols.txt`.
 - **USNF97** (AcSpecfc.dll, `NS_USNF97::USNF97_ExceptionFilter`). If the faulting instruction is FA/FB (CLI/STI), it skips it. If it is F7 (DIV/IDIV, optionally after a 1-byte prefix), it sets EDX = 0, makes EAX positive and retries. usnf97fix's vectored handler does both (division only for STATUS_INTEGER_OVERFLOW, since retrying a divide-by-zero would loop).
 
 Diagnosis notes: message tracing showed the subclassed window got Alt but never Tab or VK_LWIN, and the window thread stayed responsive (the hang watchdog in hangwatch.c never fired). apphelp.dll, AcGenral.dll and AcSpecfc.dll were loaded with no compatibility mode set in Properties. Renaming the exe stops the match. The game then needs `<exe>.SMS`: SMInit builds the symbol-map name from the module file name and reports a missing file as "Not enough memory."
+
+## To do
+
+- **32:9 flight view (next).** Add a 1706×480 mode (3× = 5118×1440). Scale the projection/FOV with width so the extra width shows more scenery instead of stretching it. Patch the HUDInit cockpit load so 1706×480 takes the 640×480 art path (1280×490 high-res art, 1:1). Audit hard-coded 640/320 widths and ≤1600 buffers. Check where the pause menu and dialogs land. The game's resolution menu only offers 320/640/800/1024, so the wide mode probably needs an ini switch.
+- **Higher internal resolution for the 3D view.** Decision: the cockpit art and the 2D HUD/GUI stay as they are (original 480-line art, scaled up as now); only the 3D scene renders at a higher internal resolution (e.g. 2×/3× of 1706×480). Open questions:
+  - Can the 3D pass and the 2D overlays be separated (render 3D large, then composite the original cockpit/HUD scaled)?
+  - How does the software rasterizer size its buffers and projection, and what hard limits does it have (1600-wide buffers)?
+  - How does the 8-bit software renderer perform at high resolution?
+- **Echo preset:** needs a log with the controller connected and `LogInput=1`.

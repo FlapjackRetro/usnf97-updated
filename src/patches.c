@@ -15,7 +15,7 @@ static SmsMap s_sms;
 /* ------------------------------------------------------------------ */
 static DWORD rd32(const BYTE *p) { return *(const DWORD *)p; }
 
-static int write_code(void *dst, const void *src, unsigned n)
+int write_code(void *dst, const void *src, unsigned n)
 {
     DWORD old;
     if (!VirtualProtect(dst, n, PAGE_EXECUTE_READWRITE, &old)) return 0;
@@ -83,6 +83,7 @@ static int sms_load(void)
 }
 
 DWORD patches_symbol(const char *name) { return sms_find(&s_sms, name); }
+DWORD patches_symbol_size(DWORD addr) { return sms_size(&s_sms, addr); }
 
 const char *patches_symbol_at(DWORD addr, DWORD *base)
 {
@@ -296,4 +297,5 @@ void patches_apply(void)
     patch_joy_interval();
     if (g_cfg.fixGameSpeed) patch_timeupdate();
     else logf("speed fix: disabled in ini");
+    widescreen_apply();
 }
